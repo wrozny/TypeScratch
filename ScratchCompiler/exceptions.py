@@ -1,0 +1,2 @@
+class ScratchCompilerException(Exception):
+    pass
