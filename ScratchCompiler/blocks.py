@@ -1,17 +1,33 @@
 from uuid import uuid4
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from typing import Union
 
 from .exceptions import ScratchCompilerException
 
 
 class InputType(IntEnum):
+    """
+        Enum class that defines different input types for scratch like:
+        if input is just a value, reference to some block or a reference with a value under it, respectively
+    """
     LITERAL = 1
     BLOCK_INPUT = 2
     SHADOW_OVERRIDDEN = 3
 
 
 class LiteralType(IntEnum):
+    """
+        Enum class that tells the exact value type inside an input like:
+        if input is a number, string, variable reference, variable name etc.
+
+        Those enums were generated with AI, it's not wise to believe these values are real
+        though these only get used internally, both InputType and LiteralType enums
+        are used in implementations of Reference class descendants only and Input class itself.
+
+        VERY IMPORTANT!!!!
+        If someone is looking back at this (includes me) and need to use this
+        please make sure these actually match the numbers used in scratch!
+    """
     BLOCK_INPUT = 0
     STRING_LITERAL = 1  # e.g., "hello"
     BROADCAST_NAME = 2  # e.g., "message1"
@@ -33,15 +49,25 @@ class LiteralType(IntEnum):
     SCENE_NUMBER = 18  # Backdrop index value
 
 
-class BlockType(IntEnum):
-    REPORTER = 1  # (rounded) ones that report a value like add, subtract, sqrt, timer
-    BOOLEAN = 2  # (hexagonal) like reporter but returns boolean
-    ACTION = 3  # (rectangular) performs any action with given parameters
-    HAT = 4  # (rounded top) like when flag clicked
-    CAP = 5  # (flat bottom) ends script
+class BlockType(StrEnum):
+    """
+        Enum class for every type of block inside scratch.
+    """
+    REPORTER = "Reporter"  # (rounded) ones that report a value like add, subtract, sqrt, timer
+    BOOLEAN = "Boolean"  # (hexagonal) like reporter but returns boolean
+    COMMAND = "Command"  # (rectangular) performs any command with given parameters like move steps
+    HAT = "Hat"  # (rounded top) like when flag clicked
+    CAP = "Cap"  # (flat bottom) ends script
 
 
 class BlockDefinition:
+    """
+        Class used for defining a scratch block template
+        bunch of definitions are hardcoded in Definitions class but with
+        this class you can create block definitions at runtime for blocks from
+        different scratch extensions that aren't defined by default.
+    """
+
     def __init__(self, opcode: str, block_type: BlockType, inputs: [str] = None, fields: [str] = None):
         if inputs is None:
             inputs = []
@@ -57,29 +83,49 @@ class BlockDefinition:
 
 
 class Definitions:
+    """
+        Class with hardcoded scratch block definitions
+    """
+
     WHEN_FLAG_CLICKED = BlockDefinition("event_whenflagclicked", block_type=BlockType.HAT)
-    MOVE_STEPS = BlockDefinition("motion_movesteps", inputs=["STEPS"], block_type=BlockType.ACTION)
-    GOTO_XY = BlockDefinition("motion_gotoxy", inputs=["X", "Y"], block_type=BlockType.ACTION)
+    MOVE_STEPS = BlockDefinition("motion_movesteps", inputs=["STEPS"], block_type=BlockType.COMMAND)
+    GOTO_XY = BlockDefinition("motion_gotoxy", inputs=["X", "Y"], block_type=BlockType.COMMAND)
 
     SET_VARIABLE_TO = BlockDefinition("data_setvariableto", inputs=["VALUE"], fields=["VARIABLE"],
-                                      block_type=BlockType.ACTION)
+                                      block_type=BlockType.COMMAND)
 
-    LOOKS_SET_SIZE_TO = BlockDefinition("looks_setsizeto", inputs=["SIZE"], block_type=BlockType.ACTION)
+    LOOKS_SET_SIZE_TO = BlockDefinition("looks_setsizeto", inputs=["SIZE"], block_type=BlockType.COMMAND)
 
     MATH_ADD = BlockDefinition("operator_add", inputs=["NUM1", "NUM2"], block_type=BlockType.REPORTER)
 
     OPERATOR_GT = BlockDefinition("operator_gt", inputs=["OPERAND1", "OPERAND2"], block_type=BlockType.BOOLEAN)
 
-    CONTROL_IF = BlockDefinition("control_if", inputs=["CONDITION", "SUBSTACK"], block_type=BlockType.ACTION)
+    CONTROL_IF = BlockDefinition("control_if", inputs=["CONDITION", "SUBSTACK"], block_type=BlockType.COMMAND)
 
 
 class Reference:
+    """
+        Base class for any type of LiteralType reference
+    """
+
     def generate_reference(self) -> list:
+        """
+        Generates reference to a corresponding scratch LiteralType
+        :return: list defining a reference
+        """
         return []
 
 
 class VariableReference(Reference):
+    """
+        Used for creating a reference to a variable for both normal Input and FieldInput
+    """
+
     def __init__(self, variable_name: str, is_field_selector: bool = False):
+        """
+        :param variable_name: Name of variable to refer to
+        :param is_field_selector: Defines if reference used in a field
+        """
         self.variable_name = variable_name
         self.is_field_selector = is_field_selector
 
@@ -93,22 +139,16 @@ class VariableReference(Reference):
         ]
 
 
-class BlockReference(Reference):
-    def __init__(self, block: "Block"):
-        self.is_substack_reference = False
-        if isinstance(block, Block):
-            self.block_id = block.uuid
-            return
-
-        raise ScratchCompilerException(
-            f"Only instance of {type(Block)} or {type(BlockStack)} can be passed in BlockReference. Got: {type(block)}")
-
-    def generate_reference(self) -> list:
-        return [InputType.BLOCK_INPUT, self.block_id]
-
-
 class SubstackReference(Reference):
+    """
+        Used for creating a reference to a substack of blocks; Used for blocks that branch off to different blocks.
+    """
+
     def __init__(self, substack: "BlockStack", head_block: "Block"):
+        """
+        :param substack: The stack of blocks
+        :param head_block: Block that blocks are getting branched from
+        """
         self.substack = substack
         self.head_block = head_block
 
@@ -128,12 +168,17 @@ class SubstackReference(Reference):
     def generate_reference(self) -> list:
         return [InputType.BLOCK_INPUT, self.first_block_id]
 
-    def get_substack(self) -> Union["BlockStack", None]:
-        return self.substack
-
 
 class Input:
+    """
+        Wrapper for any type of input needed for any given block
+    """
+
     def __init__(self, value: Union[str, Reference, "Block"]):
+        """
+        :param value: String with value, reference object or a block object
+        WARNING! Numbers should be also passed in as a string!
+        """
         self.value = value
         self.use_reference = False
         self.use_block = False
@@ -157,7 +202,7 @@ class Input:
 
             block_definition = value.block_definition
 
-            if block_definition.block_type not in [BlockType.REPORTER, BlockType.BOOLEAN, BlockType.ACTION,
+            if block_definition.block_type not in [BlockType.REPORTER, BlockType.BOOLEAN, BlockType.COMMAND,
                                                    BlockType.CAP]:
                 raise ScratchCompilerException(
                     f"Block with type: {block_definition.block_type} cannot be used as an input!")
@@ -167,6 +212,10 @@ class Input:
             f"Invalid value given inside input: '{value}' typeof: {type(value)} expected 'str', 'Reference' or 'Block'!")
 
     def generate_input(self) -> list:
+        """
+        Generates the scratch input list
+        :return: Scratch input data list
+        """
         if self.use_reference:
             return self.value.generate_reference()
 
@@ -184,6 +233,10 @@ class Input:
 
 
 class FieldInput(Input):
+    """
+        Wrapper for field inputs
+    """
+
     def __init__(self, value: Union[str, Reference]):
         super().__init__(value)
 
@@ -199,6 +252,10 @@ class FieldInput(Input):
 
 
 class Block:
+    """
+        Used for creating a scratch block instance
+    """
+
     def __init__(self, block_definition: BlockDefinition):
         self.block_definition = block_definition
         self.parent = None
@@ -208,6 +265,11 @@ class Block:
         self.field_values = {field_input: None for field_input in block_definition.fields}
 
     def generate_data(self) -> dict:
+        """
+        Generates the data of a block to be included in final .sb3 project
+        :return: Dictionary of block values
+        """
+
         for input_key, input_value in self.input_values.items():
             if input_value is None:
                 raise ScratchCompilerException(
@@ -236,6 +298,11 @@ class Block:
         return block_data
 
     def set_input_value(self, input_name: str, input_value: Input):
+        """
+        Sets the input value of a block
+        :param input_name: The name of input defined in the block definition
+        :param input_value: Instance of Input class
+        """
         if self.input_values[input_name] is not None:
             raise ScratchCompilerException(
                 f"Input value of non existent input cannot be set! Input name: {input_name}, possible inputs: {self.block_definition.inputs}")
@@ -251,6 +318,11 @@ class Block:
         self.input_values[input_name] = input_value.generate_input()
 
     def set_field_value(self, field_name: str, field_value: FieldInput):
+        """
+        Sets the field value of a block
+        :param field_name: The name of field defined in the block definition
+        :param field_value: Instance of FieldInput class
+        """
         if self.field_values[field_name] is not None:
             raise ScratchCompilerException(
                 f"Field value of non existent field cannot be set! Field name: {field_name}, possible fields: {self.block_definition.fields}")
@@ -258,6 +330,11 @@ class Block:
         self.field_values[field_name] = field_value.generate_input()
 
     def set_parent(self, parent_block: "Block", auto_set_child: bool = True):
+        """
+        Sets the parent of the block
+        :param parent_block: The parent block
+        :param auto_set_child: Defines if parents child can be set to this block
+        """
         self.parent = parent_block.uuid
         if auto_set_child:
             parent_block.child = self.uuid
@@ -267,11 +344,21 @@ class Block:
 
 
 class BlockStack:
+    """
+        Stack data structure that stores blocks and automatically sets their parent and child
+        unless explicitly disabled for each block
+    """
+
     def __init__(self):
         self.ordered_blocks = []
         self.unordered_blocks = []
 
     def add_block(self, new_block: Block, auto_parent: bool = True):
+        """
+        Adds new block to the stack
+        :param new_block: New block to be added
+        :param auto_parent: Defines if parent of new block should be automatically set
+        """
         if not auto_parent:
             if new_block in self.unordered_blocks:
                 raise ScratchCompilerException(f"Can't add the same block again! Block data: {new_block}")
@@ -291,6 +378,10 @@ class BlockStack:
         self.ordered_blocks.append(new_block)
 
     def generate_data(self) -> dict:
+        """
+        Generates the data to be used in final .sb3 project file from all added blocks
+        :return: Dictionary of block id to block data
+        """
         blocks_dict = {}
 
         for block in self.ordered_blocks:

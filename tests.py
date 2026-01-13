@@ -25,6 +25,9 @@ empty_background = target.Costume(
 
 
 def inputs_test() -> sb3_project.Project:
+    """
+        This returns a project with a sprite containing some command blocks that use Input class for defining parameters
+    """
     stage = target.Stage()
     stage.add_costume(empty_background)
     stage.create_variable(var_id="GLOBAL_VAR", default_value="120")
@@ -61,6 +64,10 @@ def inputs_test() -> sb3_project.Project:
 
 
 def fields_test() -> sb3_project.Project:
+    """
+        This returns a project with a sprite containing some command blocks that have a field to fill in
+        fields are for example the window when selecting which variable to change with set variable block
+    """
     stage = target.Stage()
     stage.add_costume(empty_background)
 
@@ -101,6 +108,9 @@ def fields_test() -> sb3_project.Project:
 
 
 def control_test() -> sb3_project.Project:
+    """
+        This returns a project with a sprite containing some control blocks like an if
+    """
     stage = target.Stage()
     stage.add_costume(empty_background)
 
