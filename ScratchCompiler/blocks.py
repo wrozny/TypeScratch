@@ -89,10 +89,17 @@ class Definitions:
 
     WHEN_FLAG_CLICKED = BlockDefinition("event_whenflagclicked", block_type=BlockType.HAT)
     MOVE_STEPS = BlockDefinition("motion_movesteps", inputs=["STEPS"], block_type=BlockType.COMMAND)
+
+    SAY = BlockDefinition("looks_say", inputs=["MESSAGE"], block_type=BlockType.COMMAND)
+
+    TURN_RIGHT = BlockDefinition("motion_turnright", inputs=["DEGREES"], block_type=BlockType.COMMAND)
+    TURN_LEFT = BlockDefinition("motion_turnleft", inputs=["DEGREES"], block_type=BlockType.COMMAND)
+
     GOTO_XY = BlockDefinition("motion_gotoxy", inputs=["X", "Y"], block_type=BlockType.COMMAND)
 
     SET_VARIABLE_TO = BlockDefinition("data_setvariableto", inputs=["VALUE"], fields=["VARIABLE"],
                                       block_type=BlockType.COMMAND)
+    CHANGE_VARIABLE_BY = BlockDefinition("data_changevariableby", inputs=["VALUE"], fields=["VARIABLE"], block_type=BlockType.COMMAND)
 
     LOOKS_SET_SIZE_TO = BlockDefinition("looks_setsizeto", inputs=["SIZE"], block_type=BlockType.COMMAND)
 
@@ -101,6 +108,9 @@ class Definitions:
     OPERATOR_GT = BlockDefinition("operator_gt", inputs=["OPERAND1", "OPERAND2"], block_type=BlockType.BOOLEAN)
 
     CONTROL_IF = BlockDefinition("control_if", inputs=["CONDITION", "SUBSTACK"], block_type=BlockType.COMMAND)
+    CONTROL_REPEAT = BlockDefinition("control_repeat", inputs=["TIMES", "SUBSTACK"], block_type=BlockType.COMMAND)
+    CONTROL_REPEAT_UNTIL = BlockDefinition("control_repeat_until", inputs=["SUBSTACK", "CONDITION"], block_type=BlockType.COMMAND)
+    CONTROL_FOREVER = BlockDefinition("control_forever", inputs=["SUBSTACK"], block_type=BlockType.CAP)
 
 
 class Reference:
@@ -352,6 +362,13 @@ class BlockStack:
     def __init__(self):
         self.ordered_blocks = []
         self.unordered_blocks = []
+
+    @property
+    def first_block(self) -> Block | None:
+        """
+        :return: first block
+        """
+        return self.ordered_blocks[0]
 
     def add_block(self, new_block: Block, auto_parent: bool = True):
         """
