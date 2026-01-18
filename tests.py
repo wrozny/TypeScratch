@@ -162,3 +162,71 @@ def control_test() -> sb3_project.Project:
     project.add_sprite(ducky)
 
     return project
+
+
+def control_test2() -> sb3_project.Project:
+    """
+        This returns a project with a sprite containing loop control blocks
+    """
+    stage = target.Stage()
+    stage.add_costume(empty_background)
+
+    ducky = target.Sprite()
+    ducky.add_costume(ducky_costume)
+
+    # main block stack starts here
+
+    main_block_stack = blocks.BlockStack()
+
+    start_block = blocks.Block(blocks.Definitions.WHEN_FLAG_CLICKED)
+    main_block_stack.add_block(start_block)
+
+    repeat_block = blocks.Block(blocks.Definitions.CONTROL_REPEAT)
+    repeat_block.set_input_value("TIMES", blocks.Input("100"))
+    main_block_stack.add_block(repeat_block)
+
+    forever_block = blocks.Block(blocks.Definitions.CONTROL_FOREVER)
+    main_block_stack.add_block(forever_block)
+
+    # repeat substack starts here
+    ducky.create_variable("counter", 0)
+
+    repeat_substack = blocks.BlockStack()
+
+    change_variable_by = blocks.Block(blocks.Definitions.CHANGE_VARIABLE_BY)
+    change_variable_by.set_input_value("VALUE", blocks.Input("1"))
+    change_variable_by.set_field_value("VARIABLE",
+                                       blocks.FieldInput(blocks.VariableReference("counter", is_field_selector=True)))
+    repeat_substack.add_block(change_variable_by)
+
+    say_block = blocks.Block(blocks.Definitions.SAY)
+    say_block.set_input_value("MESSAGE", blocks.Input(blocks.VariableReference("counter")))
+    repeat_substack.add_block(say_block)
+
+    repeat_block.set_input_value("SUBSTACK", blocks.Input(repeat_substack.first_block))
+
+    # repeat substack ends here
+
+    # forever substack starts here
+
+    forever_substack = blocks.BlockStack()
+
+    turn_right_block = blocks.Block(blocks.Definitions.TURN_RIGHT)
+    turn_right_block.set_input_value("DEGREES", blocks.Input("15"))
+
+    forever_substack.add_block(turn_right_block)
+
+    forever_block.set_input_value("SUBSTACK", blocks.Input(forever_substack.first_block))
+
+    # forever substack ends here
+
+    project = sb3_project.Project()
+
+    ducky.add_block_stack(main_block_stack)
+    ducky.add_block_stack(repeat_substack)
+    ducky.add_block_stack(forever_substack)
+
+    project.add_sprite(stage)
+    project.add_sprite(ducky)
+
+    return project
