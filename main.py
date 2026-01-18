@@ -18,8 +18,9 @@ def main():
         the project variable can also be changed to:
         project = tests.fields_test()
         project = tests.inputs_test()
+        project = tests.control_test()
     """
-    project = tests.control_test()
+    project = tests.control_test2()
     build_sb3_from_project(project, "project_result", temp_folder_path=TEMP_FOLDER_PATH,
                            output_folder_path=OUTPUT_FOLDER_PATH)
 
