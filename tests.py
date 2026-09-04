@@ -238,20 +238,44 @@ def procedure_test() -> sb3_project.Project:
     """
     stage = target.Stage()
     stage.add_costume(empty_background)
+
     sprite = target.Sprite()
     sprite.add_costume(ducky_costume)
 
+    sprite.create_variable("sum", 0)
+
     my_procedure = blocks.Procedure("add", ["a", "b"])
+
+    reference_a = my_procedure.get_parameter_as_input("a")
+    reference_b = my_procedure.get_parameter_as_input("b")
+
+    add_operation = blocks.Block(blocks.Definitions.MATH_ADD)
+    add_operation.set_input_value("NUM1", reference_a)
+    add_operation.set_input_value("NUM2", reference_b)
+
+    set_variable_block = blocks.Block(blocks.Definitions.SET_VARIABLE_TO)
+    set_variable_block.set_input_value("VALUE", blocks.Input(add_operation))
+    set_variable_block.set_field_value(field_name="VARIABLE", field_value=blocks.FieldInput(
+        blocks.VariableReference("sum", is_field_selector=True)))
+
+    block_stack = blocks.BlockStack()
+
+    block_stack.add_block(set_variable_block)
+    block_stack.add_block(add_operation, False)
+
+    my_procedure.set_block_stack(block_stack)
+
     sprite.include_procedure(my_procedure)
 
+    # when flag clicked
     start_block = blocks.Block(blocks.Definitions.WHEN_FLAG_CLICKED)
     procedure_call = my_procedure.generate_call_block([blocks.Input("2"), blocks.Input("4")])
 
     block_stack = blocks.BlockStack()
     block_stack.add_block(start_block)
     block_stack.add_block(procedure_call)
-
     sprite.add_block_stack(block_stack)
+    # end of when flag clicked
 
     project = sb3_project.Project()
 
