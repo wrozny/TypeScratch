@@ -1,7 +1,7 @@
 from hashlib import md5
 import os
 
-from .blocks import BlockStack
+from .blocks import BlockStack, Procedure
 from .exceptions import ScratchCompilerException
 
 
@@ -19,6 +19,7 @@ class Costume:
     """
         Abstraction of the scratch costume data
     """
+
     def __init__(self, file_path: str, data_format: str, name: str, bitmap_resolution: int = 1,
                  px_pivot: (float, float) = (0, 0)):
         """
@@ -56,6 +57,7 @@ class Sound:
         Abstraction of the scratch sound data
         NOT IMPLEMENTED YET!
     """
+
     def __init__(self, file_path: str, data_format: str, name: str, rate: int = 44100, sample_count: int = 1032):
         """
         TODO!!!
@@ -88,10 +90,12 @@ class Sprite:
     """
         Abstraction of the scratch sprite data
     """
+
     def __init__(self, name: str = "Sprite"):
         """
         :param name: Name of the sprite
         """
+        self.used_procedures = {}
         self.costume_objects = []
         self.sprite_data = {
             "isStage": False,
@@ -128,6 +132,16 @@ class Sprite:
         for block_uuid, block_data in blocks_data.items():
             self.sprite_data["blocks"][block_uuid] = block_data
 
+    def include_procedure(self, procedure: Procedure):
+        """
+        Includes procedure data inside sprite data
+        :param procedure: The procedure instance to be included
+        """
+        self.used_procedures[procedure.procedure_name] = procedure
+
+        for block_uuid, block_data in procedure.generate_procedure_data().items():
+            self.sprite_data["blocks"][block_uuid] = block_data
+
     def create_variable(self, var_id: str, default_value: str | int = 0):
         """
         Defines a local variable in sprite memory
@@ -155,7 +169,8 @@ class Sprite:
         """
 
         if sprite_property == "isStage":
-            raise ScratchCompilerException("Property isStage cannot be changed! Use Sprite or Stage class to change this behaviour!")
+            raise ScratchCompilerException(
+                "Property isStage cannot be changed! Use Sprite or Stage class to change this behaviour!")
 
         current_value = self.sprite_data.get(sprite_property)
         if current_value is None:
@@ -177,6 +192,7 @@ class Stage(Sprite):
     """
         Stage abstraction, acts like a sprite but contains different properties
     """
+
     # noinspection PyMissingConstructor
     def __init__(self):
         self.costume_objects = []
