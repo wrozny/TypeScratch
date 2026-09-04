@@ -230,3 +230,32 @@ def control_test2() -> sb3_project.Project:
     project.add_sprite(ducky)
 
     return project
+
+
+def procedure_test() -> sb3_project.Project:
+    """
+        Tests procedure definitions and calls
+    """
+    stage = target.Stage()
+    stage.add_costume(empty_background)
+    sprite = target.Sprite()
+    sprite.add_costume(ducky_costume)
+
+    my_procedure = blocks.Procedure("add", ["a", "b"])
+    sprite.include_procedure(my_procedure)
+
+    start_block = blocks.Block(blocks.Definitions.WHEN_FLAG_CLICKED)
+    procedure_call = my_procedure.generate_call_block([blocks.Input("2"), blocks.Input("4")])
+
+    block_stack = blocks.BlockStack()
+    block_stack.add_block(start_block)
+    block_stack.add_block(procedure_call)
+
+    sprite.add_block_stack(block_stack)
+
+    project = sb3_project.Project()
+
+    project.add_sprite(stage)
+    project.add_sprite(sprite)
+
+    return project
