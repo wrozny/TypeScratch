@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 from enum import IntEnum, StrEnum
 from typing import Union
@@ -99,7 +100,8 @@ class Definitions:
 
     SET_VARIABLE_TO = BlockDefinition("data_setvariableto", inputs=["VALUE"], fields=["VARIABLE"],
                                       block_type=BlockType.COMMAND)
-    CHANGE_VARIABLE_BY = BlockDefinition("data_changevariableby", inputs=["VALUE"], fields=["VARIABLE"], block_type=BlockType.COMMAND)
+    CHANGE_VARIABLE_BY = BlockDefinition("data_changevariableby", inputs=["VALUE"], fields=["VARIABLE"],
+                                         block_type=BlockType.COMMAND)
 
     LOOKS_SET_SIZE_TO = BlockDefinition("looks_setsizeto", inputs=["SIZE"], block_type=BlockType.COMMAND)
 
@@ -109,7 +111,8 @@ class Definitions:
 
     CONTROL_IF = BlockDefinition("control_if", inputs=["CONDITION", "SUBSTACK"], block_type=BlockType.COMMAND)
     CONTROL_REPEAT = BlockDefinition("control_repeat", inputs=["TIMES", "SUBSTACK"], block_type=BlockType.COMMAND)
-    CONTROL_REPEAT_UNTIL = BlockDefinition("control_repeat_until", inputs=["SUBSTACK", "CONDITION"], block_type=BlockType.COMMAND)
+    CONTROL_REPEAT_UNTIL = BlockDefinition("control_repeat_until", inputs=["SUBSTACK", "CONDITION"],
+                                           block_type=BlockType.COMMAND)
     CONTROL_FOREVER = BlockDefinition("control_forever", inputs=["SUBSTACK"], block_type=BlockType.CAP)
 
 
@@ -168,7 +171,7 @@ class SubstackReference(Reference):
             if first_block is None:
                 raise ScratchCompilerException("Can't create empty substack reference!")
 
-            first_block.set_parent(head_block, auto_set_child=False)
+            first_block.connect_parent(head_block, auto_set_child=False)
             self.substack = substack
             self.first_block_id = first_block.uuid
             return
@@ -184,7 +187,7 @@ class Input:
         Wrapper for any type of input needed for any given block
     """
 
-    def __init__(self, value: Union[str, Reference, "Block"]):
+    def __init__(self, value: Union[str, Reference, "Block"], force_input_type: InputType | None = None):
         """
         :param value: String with value, reference object or a block object
         WARNING! Numbers should be also passed in as a string!
@@ -195,17 +198,19 @@ class Input:
         self.input_type = None
         self.literal_type = None
 
+        resolved_value_type = False
+
         if isinstance(value, str):
             self.input_type = InputType.LITERAL
             self.literal_type = LiteralType.STRING_LITERAL
 
             if value.isdigit() or value.isdecimal():
                 self.literal_type = LiteralType.NUMBER_LITERAL
-            return
+            resolved_value_type = True
 
         if isinstance(value, Reference):
             self.use_reference = True
-            return
+            resolved_value_type = True
 
         if isinstance(value, Block):
             self.use_block = True
@@ -216,6 +221,12 @@ class Input:
                                                    BlockType.CAP]:
                 raise ScratchCompilerException(
                     f"Block with type: {block_definition.block_type} cannot be used as an input!")
+            resolved_value_type = True
+
+        if force_input_type is not None:
+            self.input_type = force_input_type
+
+        if resolved_value_type:
             return
 
         raise ScratchCompilerException(
@@ -229,14 +240,16 @@ class Input:
         if self.use_reference:
             return self.value.generate_reference()
 
-        if self.use_block:
-            return [InputType.SHADOW_OVERRIDDEN, self.value.uuid, [LiteralType.NUMBER_LITERAL, "0"]]
-
-        if self.literal_type == LiteralType.BLOCK_INPUT:
+        if self.input_type == InputType.BLOCK_INPUT:
+            if self.use_block:
+                return [self.input_type, self.value.uuid]
             return [self.input_type, self.value]
 
         if self.input_type == InputType.LITERAL:
             return [self.input_type, [self.literal_type, self.value]]
+
+        if self.use_block:
+            return [InputType.SHADOW_OVERRIDDEN, self.value.uuid, [LiteralType.NUMBER_LITERAL, "0"]]
 
         return [InputType.SHADOW_OVERRIDDEN, [self.input_type, [self.literal_type, self.value]],
                 [LiteralType.NUMBER_LITERAL, 0]]
@@ -261,6 +274,21 @@ class FieldInput(Input):
             f"Field input not implemented, input type: {self.input_type} literal type: {self.literal_type}, uses reference: {self.use_reference} value: {self.value}")
 
 
+class ReporterField(Input):
+    """
+        Wrapper for fields inside reporter blocks
+    """
+
+    def __init__(self, value: Union[str, Reference]):
+        super().__init__(value)
+
+        if self.literal_type != LiteralType.STRING_LITERAL:
+            raise ScratchCompilerException(f"Reporter input can only be a 'str'! Got {type(self.value)}")
+
+    def generate_input(self) -> list:
+        return [self.value, None]
+
+
 class Block:
     """
         Used for creating a scratch block instance
@@ -273,6 +301,7 @@ class Block:
         self.uuid = str(uuid4())
         self.input_values = {block_input: None for block_input in block_definition.inputs}
         self.field_values = {field_input: None for field_input in block_definition.fields}
+        self.mutation = None
 
     def generate_data(self) -> dict:
         """
@@ -300,6 +329,9 @@ class Block:
             "topLevel": False,
         }
 
+        if self.mutation is not None:
+            block_data["mutation"] = self.mutation
+
         if self.parent is None:
             block_data["topLevel"] = True
             block_data["x"] = 0
@@ -307,13 +339,15 @@ class Block:
 
         return block_data
 
-    def set_input_value(self, input_name: str, input_value: Input):
+    def set_input_value(self, input_name: str, input_value: Input, ignore_safety: bool = False):
         """
         Sets the input value of a block
         :param input_name: The name of input defined in the block definition
         :param input_value: Instance of Input class
+        :param ignore_safety: Tells whether to ignore some safety checks like: *input in definition*
         """
-        if self.input_values[input_name] is not None:
+
+        if input_name not in self.input_values and not ignore_safety:
             raise ScratchCompilerException(
                 f"Input value of non existent input cannot be set! Input name: {input_name}, possible inputs: {self.block_definition.inputs}")
 
@@ -323,11 +357,11 @@ class Block:
             raise ScratchCompilerException("One reporter block cannot be set for input in different blocks!")
 
         if input_is_block:
-            input_value.value.set_parent(self, auto_set_child=False)
+            input_value.value.connect_parent(self, auto_set_child=False)
 
         self.input_values[input_name] = input_value.generate_input()
 
-    def set_field_value(self, field_name: str, field_value: FieldInput):
+    def set_field_value(self, field_name: str, field_value: Union[FieldInput, ReporterField]):
         """
         Sets the field value of a block
         :param field_name: The name of field defined in the block definition
@@ -339,9 +373,9 @@ class Block:
 
         self.field_values[field_name] = field_value.generate_input()
 
-    def set_parent(self, parent_block: "Block", auto_set_child: bool = True):
+    def connect_parent(self, parent_block: "Block", auto_set_child: bool = True):
         """
-        Sets the parent of the block
+        Sets the parent of a child and child of the parent unless explicitly defined not to
         :param parent_block: The parent block
         :param auto_set_child: Defines if parents child can be set to this block
         """
@@ -390,13 +424,13 @@ class BlockStack:
         if last_block is not None:
             if new_block.parent is not None:
                 raise ScratchCompilerException(f"Can't change the parent of a block that already has a parent!")
-            new_block.set_parent(last_block)
+            new_block.connect_parent(last_block)
 
         self.ordered_blocks.append(new_block)
 
     def generate_data(self) -> dict:
         """
-        Generates the data to be used in final .sb3 project file from all added blocks
+        Generates the data to be used in final .sb3 project file from all added blocks.
         :return: Dictionary of block id to block data
         """
         blocks_dict = {}
@@ -408,3 +442,126 @@ class BlockStack:
             blocks_dict[block.uuid] = block.generate_data()
 
         return blocks_dict
+
+
+class Procedure:
+    """
+        Class defining procedure logic, scratch saves a lot of unique information for this
+    """
+
+    def __init__(self, procedure_name: str, parameters: list[str] | None = None, use_warp: bool = False):
+        self.procedure_name = procedure_name
+        self.unordered_blocks = []
+        self.ordered_blocks = []
+
+        self.use_warp = use_warp
+
+        self.parameters = parameters if parameters is not None else []
+
+        self.parameter_blocks = []
+
+        arg_reporter_definition = BlockDefinition("argument_reporter_string_number", fields=["VALUE"],
+                                                  block_type=BlockType.REPORTER)
+
+        for parameter_name in self.parameters:
+            new_reporter = Block(arg_reporter_definition)
+            new_reporter.set_field_value("VALUE", ReporterField(parameter_name))
+            self.parameter_blocks.append(new_reporter)
+
+        self.call_block_definition = BlockDefinition("procedures_call",
+                                                     inputs=[reporter.uuid for reporter in self.parameter_blocks],
+                                                     block_type=BlockType.COMMAND)
+        self.call_block_mutation = {
+                "tagName": "mutation",
+                "children": [],
+                "proccode": f"{self.procedure_name} {' '.join(['%s'] * len(self.parameter_blocks))}",
+                "argumentids": json.dumps([reporter.uuid for reporter in self.parameter_blocks]),
+                "warp": "true" if self.use_warp else "false"
+            }
+
+    def get_parameter_reference(self, parameter_name: str):
+        """
+        Creates Input object with reference to provided parameter block
+        and automatically includes the lock in final json
+        :return: The input reference to a parameter
+        """
+        pass
+
+    def add_block_stack(self, block_stack: BlockStack):
+        """
+        Adds a block stack to the procedure definition
+        :param block_stack: Block stack
+        """
+        pass
+
+    def generate_call_block(self, arguments: list[Input]) -> Block:
+        """
+        Generates a block that calls this procedure with provided arguments
+        :return: procedure call block
+        """
+
+        if len(arguments) != len(self.parameter_blocks):
+            raise ScratchCompilerException(
+                f"Procedure {self.procedure_name} requires {len(self.parameter_blocks)} arguments but {len(arguments)} were given!")
+
+        call_block = Block(self.call_block_definition)
+
+        for argument, reporter in list(zip(arguments, self.parameter_blocks)):
+            call_block.set_input_value(reporter.uuid, argument)
+
+        call_block.mutation = self.call_block_mutation
+
+        return call_block
+
+    def generate_procedure_data(self) -> dict:
+        """
+        Generates a dictionary with all blocks used in the procedure.
+        :return: procedure data
+        """
+
+        procedure_definition_block = Block(
+            BlockDefinition("procedures_definition", inputs=["custom_block"], block_type=BlockType.HAT))
+
+        procedure_prototype_block = Block(BlockDefinition("procedures_prototype", block_type=BlockType.COMMAND))
+
+        procedure_definition_block.set_input_value("custom_block", Input(procedure_prototype_block,
+                                                                         force_input_type=InputType.BLOCK_INPUT))
+
+        procedure_prototype_block.connect_parent(procedure_definition_block, auto_set_child=False)
+        procedure_prototype_block.mutation = {
+            "tagName": "mutation",
+            "children": [],
+            "proccode": f"{self.procedure_name} {' '.join(['%s'] * len(self.parameter_blocks))}",
+            "argumentids": json.dumps([reporter.uuid for reporter in self.parameter_blocks]),
+            "argumentnames": json.dumps(self.parameters),
+            "argumentdefaults": json.dumps([""] * len(self.parameter_blocks) + ["false"] * len(self.parameter_blocks)),
+            "warp": json.dumps(self.use_warp)
+        }
+
+        prototype_block_data = procedure_prototype_block.generate_data()
+        prototype_block_data["shadow"] = True
+
+        for parameter_name, parameter_reporter in list(zip(self.parameters, self.parameter_blocks)):
+            procedure_prototype_block.set_input_value(parameter_name,
+                                                      Input(parameter_reporter, force_input_type=InputType.BLOCK_INPUT),
+                                                      ignore_safety=True)
+
+        # prototype_block_data["mutation"] = {
+        #     "tagName": "mutation",
+        #     "children": [],
+        #     "proccode": f"{self.procedure_name} {' '.join(['%s'] * len(self.parameter_blocks))}",
+        #     "argumentids": json.dumps([reporter.uuid for reporter in self.parameter_blocks]),
+        #     "argumentnames": json.dumps(self.parameters),
+        #     "argumentdefaults": json.dumps([""] * len(self.parameter_blocks) + ["false"] * len(self.parameter_blocks)),
+        #     "warp": json.dumps(self.use_warp)
+        # }
+
+        final_data = {}
+
+        for parameter_block in self.parameter_blocks:
+            final_data[parameter_block.uuid] = parameter_block.generate_data()
+
+        final_data[procedure_prototype_block.uuid] = prototype_block_data
+        final_data[procedure_definition_block.uuid] = procedure_definition_block.generate_data()
+
+        return final_data
