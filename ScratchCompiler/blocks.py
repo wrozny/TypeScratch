@@ -404,6 +404,12 @@ class BlockStack:
         """
         return self.ordered_blocks[0]
 
+    def empty(self) -> bool:
+        """
+        :return: boolean whether block stack is empty or not
+        """
+        return len(self.ordered_blocks) == 0
+
     def add_block(self, new_block: Block, auto_parent: bool = True):
         """
         Adds new block to the stack
@@ -453,6 +459,7 @@ class Procedure:
         self.procedure_name = procedure_name
         self.unordered_blocks = []
         self.ordered_blocks = []
+        self.current_block_stack: BlockStack | None = None
 
         self.use_warp = use_warp
 
@@ -472,27 +479,39 @@ class Procedure:
                                                      inputs=[reporter.uuid for reporter in self.parameter_blocks],
                                                      block_type=BlockType.COMMAND)
         self.call_block_mutation = {
-                "tagName": "mutation",
-                "children": [],
-                "proccode": f"{self.procedure_name} {' '.join(['%s'] * len(self.parameter_blocks))}",
-                "argumentids": json.dumps([reporter.uuid for reporter in self.parameter_blocks]),
-                "warp": "true" if self.use_warp else "false"
-            }
+            "tagName": "mutation",
+            "children": [],
+            "proccode": f"{self.procedure_name} {' '.join(['%s'] * len(self.parameter_blocks))}",
+            "argumentids": json.dumps([reporter.uuid for reporter in self.parameter_blocks]),
+            "warp": "true" if self.use_warp else "false"
+        }
 
-    def get_parameter_reference(self, parameter_name: str):
+    def get_parameter_as_input(self, parameter_name: str) -> Input:
         """
         Creates Input object with reference to provided parameter block
-        and automatically includes the lock in final json
+        and automatically includes the block in final json
         :return: The input reference to a parameter
         """
-        pass
 
-    def add_block_stack(self, block_stack: BlockStack):
+        if parameter_name not in self.parameters:
+            raise ScratchCompilerException(
+                f"Tried to reference parameter '{parameter_name}' but procedure only supports ({self.parameters})")
+
+        argument_reporter_definition = BlockDefinition("argument_reporter_string_number", fields=["VALUE"],
+                                                       block_type=BlockType.REPORTER)
+        argument_reporter_block = Block(argument_reporter_definition)
+        argument_reporter_block.set_field_value("VALUE", ReporterField(parameter_name))
+
+        self.unordered_blocks.append(argument_reporter_block)
+
+        return Input(argument_reporter_block)
+
+    def set_block_stack(self, block_stack: BlockStack):
         """
-        Adds a block stack to the procedure definition
+        Adds the set block stack to the procedure definition
         :param block_stack: Block stack
         """
-        pass
+        self.current_block_stack = block_stack
 
     def generate_call_block(self, arguments: list[Input]) -> Block:
         """
@@ -546,17 +565,15 @@ class Procedure:
                                                       Input(parameter_reporter, force_input_type=InputType.BLOCK_INPUT),
                                                       ignore_safety=True)
 
-        # prototype_block_data["mutation"] = {
-        #     "tagName": "mutation",
-        #     "children": [],
-        #     "proccode": f"{self.procedure_name} {' '.join(['%s'] * len(self.parameter_blocks))}",
-        #     "argumentids": json.dumps([reporter.uuid for reporter in self.parameter_blocks]),
-        #     "argumentnames": json.dumps(self.parameters),
-        #     "argumentdefaults": json.dumps([""] * len(self.parameter_blocks) + ["false"] * len(self.parameter_blocks)),
-        #     "warp": json.dumps(self.use_warp)
-        # }
-
         final_data = {}
+
+        if self.current_block_stack and not self.current_block_stack.empty():
+            self.current_block_stack.first_block.connect_parent(procedure_definition_block, auto_set_child=True)
+            for block_id, block_data in self.current_block_stack.generate_data().items():
+                final_data[block_id] = block_data
+
+        for block in self.unordered_blocks:
+            final_data[block.uuid] = block.generate_data()
 
         for parameter_block in self.parameter_blocks:
             final_data[parameter_block.uuid] = parameter_block.generate_data()
