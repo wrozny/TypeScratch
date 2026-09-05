@@ -106,6 +106,9 @@ class Definitions:
     LOOKS_SET_SIZE_TO = BlockDefinition("looks_setsizeto", inputs=["SIZE"], block_type=BlockType.COMMAND)
 
     MATH_ADD = BlockDefinition("operator_add", inputs=["NUM1", "NUM2"], block_type=BlockType.REPORTER)
+    MATH_SUB = BlockDefinition("operator_subtract", inputs=["NUM1", "NUM2"], block_type=BlockType.REPORTER)
+    MATH_MUL = BlockDefinition("operator_multiply", inputs=["NUM1", "NUM2"], block_type=BlockType.REPORTER)
+    MATH_DIV = BlockDefinition("operator_divide", inputs=["NUM1", "NUM2"], block_type=BlockType.REPORTER)
 
     OPERATOR_GT = BlockDefinition("operator_gt", inputs=["OPERAND1", "OPERAND2"], block_type=BlockType.BOOLEAN)
 
