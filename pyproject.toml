@@ -1,6 +1,6 @@
 [project]
 name = "TypeScratch"
-version = "0.1.0"
+version = "0.2.0"
 description = "Programming language that translates js-like code into .sb3 format that can be opened by Scratch"
 authors = [{name = "wrozny", email = "wrozny+typescratch@gmail.com"}]
 requires-python = ">=3.11, <3.12"
