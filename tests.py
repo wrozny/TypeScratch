@@ -288,7 +288,7 @@ def procedure_test() -> sb3_project.Project:
 
 def parser_test1():
     parser = Parser()
-    file_path = "lang_tests/test1.tsl"
+    file_path = "LangTests/test1.tsl"
     parser.feed_file(file_path)
     print(parser.tokens)
 
