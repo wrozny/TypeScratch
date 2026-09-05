@@ -1,6 +1,7 @@
 import os
 
 from ScratchCompiler import target, sb3_project, blocks
+from Lang.parser import Parser
 
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 BUILD_FOLDER = os.path.join(SCRIPT_PATH, "build")
@@ -283,3 +284,14 @@ def procedure_test() -> sb3_project.Project:
     project.add_sprite(sprite)
 
     return project
+
+
+def parser_test1():
+    parser = Parser()
+    file_path = "lang_tests/test1.tsl"
+    parser.feed_file(file_path)
+    print(parser.tokens)
+
+
+if __name__ == "__main__":
+    parser_test1()
