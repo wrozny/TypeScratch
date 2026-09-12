@@ -21,8 +21,8 @@ class LiteralType(IntEnum):
         Enum class that tells the exact value type inside an input like:
         if input is a number, string, variable reference, variable name etc.
 
-        Those enums were generated with AI, it's not wise to believe these values are real
-        though these only get used internally, both InputType and LiteralType enums
+        Those enums were generated with AI, I don't trust these values,
+        but if anything is wrong it will show up later in testing, both InputType and LiteralType enums
         are used in implementations of Reference class descendants only and Input class itself.
 
         VERY IMPORTANT!!!!
