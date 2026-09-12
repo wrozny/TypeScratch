@@ -4,17 +4,21 @@
 
 # !!! Work in progress
 <p>
-    The project is at stage of creating a translation layer
-    between python and scratch
+    Currently the only major unsupported features are lists and importing extensions,
+    beside that and the fact that not all blocks are defined you can make anything 
+    you could in the scratch app.
+    I am currently in process of creating the parser and AST layer.
+    
+    Text -> Tokenizer -> Parser -> AST -> Builder -> Scratch Compiler -> Scratch File
 </p>
 <div>
-    You can currently create very simple scratch projects,
-    but it gets very monotonic to do by hand with only straight compiler
-    abstractions<br><br>Currently working:
+    Currently working:
     <ul>
         <li>Variables</li>
         <li>Math operators</li>
         <li>Control blocks</li>
+        <li>Procedures</li>
+        <li>Reporters</li>
         <li>Most if not all normal command blocks</li>
     </ul>
     <p>
@@ -25,11 +29,9 @@
 <hr>
 
 # Tasks in progress:
-<ul>
-    <li>Finishing the ScratchCompiler</li>
-    <li>Defining IR (intermediate representation) format</li>
-    <li>Making a project from IR with the compiler</li>
-    <li>Parsing the language into AST (abstract syntax tree)</li>
-    <li>Translating AST into IR</li>
-    <li>Adding potential features that scratch doesn't provide by default like return types</li>
-</ul>
+<ol>
+    <li>AST Layer (at least basic functionality)</li>
+    <li>Parser Layer (creates AST)</li>
+    <li>Builder Layer (translates AST into direct ScratchCompiler objects)</li>
+    <li>Extending functionality compiler and language wise</li>
+</ol>
