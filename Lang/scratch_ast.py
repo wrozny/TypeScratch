@@ -33,7 +33,6 @@ class LiteralValue(ASTNode):
     value: str
 
 
-
 @dataclass
 class VariableDeclaration(ASTNode):
     """
@@ -52,9 +51,11 @@ class VariableSet(ASTNode):
     variable_name: str
     new_value: Reporter
 
+
 @dataclass
 class EntryPoint(ASTNode):
     body: list[ASTNode]
+
 
 @dataclass
 class VariableReference(Reporter):
@@ -76,6 +77,7 @@ class ParameterReference(Reporter):
 class ProcedureDefinition(EntryPoint):
     procedure_name: str
     parameters: list[str]
+
 
 @dataclass
 class Instruction(ASTNode):
@@ -110,7 +112,6 @@ class EntryPoint(BlockDefinition):
     pass
 
 
-
 @dataclass
 class SpriteDefinition(ASTNode):
     name: str
@@ -119,9 +120,6 @@ class SpriteDefinition(ASTNode):
     variable_declarations: list[VariableDeclaration]
 
 
-
 @dataclass
 class VirtualSpriteDefinition(SpriteDefinition):
     pass
-
-
