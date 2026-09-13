@@ -1,6 +1,9 @@
 from .tokenizer import *
 from .scratch_ast import *
+from .mangling import get_unique_mangle_id_generator
 import os
+
+UNIQUE_ID_GENERATOR = get_unique_mangle_id_generator()
 
 
 class ParseException(Exception):
@@ -16,6 +19,7 @@ class Parser:
         self.tokens = []
         self.tokens_count = len(self.tokens)
         self.current_file = None
+        self.scope = []
 
     def feed_text(self, text: str, add_new_file_token: bool = True):
         """
@@ -41,6 +45,19 @@ class Parser:
                 self.feed_text(source.read(), add_new_file_token=False)
         else:
             raise ParseException(f"File feeding to parser failed, path {path} isn't a real path!")
+
+    def feed_tokens(self, tokens: list[Token]):
+        """
+        Feeds the provided tokens by appending them to tokens list
+        :param tokens: Tokens to feed
+        """
+        if self.tokens_count == 0:
+            self.tokens = tokens
+        else:
+            for token in tokens:
+                self.tokens.append(token)
+
+        self.tokens_count = len(self.tokens)
 
     def current_token(self) -> Token | None:
         """
@@ -128,8 +145,100 @@ class Parser:
             f"line: {current_token.line}, column: {current_token.column}"
         )
 
+    def create_subparser(self, starting_tokens: list[Token] | None = None) -> "Parser":
+        """
+        Creates a new Parser object that saves
+        :return:
+        """
+
+        new_parser = Parser()
+        new_parser.scope = self.scope.copy()
+        new_parser.current_file = self.current_file
+
+        if starting_tokens is not None:
+            new_parser.feed_tokens(starting_tokens)
+
+        return new_parser
+
     def _parse_sprite(self):
-        pass
+        """
+        Parses the sprite definition
+        :return:
+        """
+
+        if len(self.scope) > 0:
+            raise SyntaxError(
+                f"Sprite has to be declared in global scope! line: {self.current_token().line} column: {self.current_token().column}")
+
+        self.scope.append("Sprite")
+
+        sprite_token = self.current_token()
+        starting_line = sprite_token.line
+        starting_column = sprite_token.column
+
+        self.next_token()
+        self.expect_current_token(token_type=TokenType.IDENTIFIER)
+        sprite_name = self.current_token().value
+
+        self.scope.append(sprite_name)
+
+        self.next_token()
+        sprite_definition_tokens = self._consume_braces()
+
+        internal_parser = self.create_subparser(sprite_definition_tokens)
+        internal_parser.scope.append("Sprite")
+        internal_parser.scope.append(sprite_name)
+
+        internal_nodes = internal_parser.build_ast()
+
+        sprite_definition = SpriteDefinition(
+            line=starting_line,
+            column=starting_column,
+            name=sprite_name,
+            procedures=[],
+            entry_points=[],
+            variable_declarations=[]
+        )
+
+        for node in internal_nodes:
+            if isinstance(node, ProcedureDefinition):
+                sprite_definition.procedures.append(node)
+            if isinstance(node, VariableDeclaration):
+                sprite_definition.variable_declarations.append(node)
+            if isinstance(node, EntryPoint):
+                sprite_definition.entry_points.append(node)
+
+        return sprite_definition
+
+    def _parse_decorator(self) -> list[EntryPoint | ProcedureDefinition]:
+        """
+        Method used to parse a decorator (aka entry points)
+        for decorator with braces body straight after do the instructions right at entry point
+        for decorator with procedure definition after it, call the procedure at entry point start
+        :return: List of entry points or procedure definitions
+        """
+
+        self.expect_current_token(token_type=TokenType.DECORATOR)
+        decorator_value = self.current_token().value
+
+        token_after_decorator = self.next_token()
+        self.expect_current_token_one_of(
+            (TokenType.LPAREN, None),  # additional decorator arguments
+            (TokenType.LBRACE, None),  # entry point directly contains body
+            (TokenType.KEYWORD, None)  # might be a procedure definition right after
+        )
+
+        if token_after_decorator.token_type == TokenType.LPAREN:
+            # !TODO parse parentheses for decorator arguments
+            raise ParseException("Decorator arguments are not yet implemented!")
+
+        if token_after_decorator.token_type == TokenType.LBRACE:
+            body_tokens = self._consume_braces()
+            body_parser = self.create_subparser(body_tokens)
+            body_parser.scope.append(next(UNIQUE_ID_GENERATOR))
+
+        # !TODO implement the rest of simple decorator to body logic
+        raise ParseException("Decorator parsing is not implemented yet!")
 
     def _parse_keyword(self):
         """
@@ -203,9 +312,20 @@ class Parser:
         """
         return self._consume_content(TokenType.LPAREN, TokenType.RPAREN)
 
-    def build_ast(self):
+    def build_ast(self) -> list[ASTNode]:
         """
         Parses the provided tokens and constructs an abstract syntax tree
         :return:
         """
-        pass
+        current_token = self.current_token()
+
+        nodes = []
+
+        while current_token is not None:
+            self.scope = []
+            if current_token.token_type == TokenType.KEYWORD:
+                nodes.append(self._parse_keyword())
+
+            current_token = self.next_token()
+
+        return nodes
