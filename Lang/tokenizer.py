@@ -29,7 +29,7 @@ class TokenType(StrEnum):
 
 token_specification = [
     ('NUMBER', r'\d+(\.\d*)?'),
-    #('STRING', r'"[^"]*"'),
+    # ('STRING', r'"[^"]*"'),
     ('STRING', r'("[^"]*"|\'[^\']*\')'),
     ('DECORATOR', r'@[A-Za-z_]\w*'),
     ('IDENTIFIER', r'[A-Za-z_]\w*'),
@@ -102,18 +102,3 @@ def tokenize(text: str) -> list[Token]:
 
     tokens.append(Token(TokenType.EOF, "", line_num, len(text) - line_start))
     return tokens
-
-
-def run_test():
-    code = """
-        sprite Duck {
-            procedure main() {
-                say("hi?")
-            }
-        }
-    """
-    print(tokenize('"Hello"'))
-
-
-if __name__ == "__main__":
-    run_test()
