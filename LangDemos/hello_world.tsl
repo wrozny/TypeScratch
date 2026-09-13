@@ -1,5 +1,5 @@
 sprite Duck {
     @start {
-        say("Hello!")
+        say("Hello, world!")
     }
 }
