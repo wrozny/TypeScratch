@@ -231,7 +231,19 @@ class Parser:
         """
 
         self.expect_current_token(token_type=TokenType.DECORATOR)
-        decorator_value = self.current_token().value
+        decorator_token = self.current_token()
+        decorator_value = decorator_token.value
+
+        decorator_value_to_instruction_name = {
+            "@start": "__whenflagclicked"
+        }
+
+        decorator_instruction_name = decorator_value_to_instruction_name.get(decorator_value)
+
+        if decorator_instruction_name is None:
+            raise SyntaxError(
+                f"Invalid entry point definition! Got {decorator_value} expected one of: {decorator_value_to_instruction_name.keys()}\n"
+                f"line {decorator_token.line} column {decorator_token.column}")
 
         token_after_decorator = self.next_token()
         self.expect_current_token_one_of(
@@ -248,11 +260,28 @@ class Parser:
             body_tokens = self._consume_braces()
             body_parser = self.create_subparser(body_tokens)
             body_parser.scope.append(next(UNIQUE_ID_GENERATOR))
+            body_ast = [
+                node
+                for node in body_parser.build_ast()
+                if isinstance(node, Instruction)
+            ]
+
+            self.next_token()
+
+            return [
+                EntryPoint(
+                    line=decorator_token.line,
+                    column=decorator_token.column,
+                    instruction_name=decorator_instruction_name,
+                    arguments=[],
+                    body=body_ast
+                )
+            ]
 
         # !TODO implement the rest of simple decorator to body logic
-        raise ParseException("Decorator parsing is not implemented yet!")
+        raise NotImplementedError("Decorator parsing is not implemented yet!")
 
-    def _parse_keyword(self):
+    def _parse_keyword(self) -> list[ASTNode]:
         """
         Parses the tokens based on the first token which has to be a keyword
         :return:
@@ -271,6 +300,29 @@ class Parser:
             raise ParseException(f"Keyword {current_token.value} is not implemented yet inside _parse_keyword()")
 
         return resolve_parse()
+
+    def _parse_identifier(self, force_no_setters: bool = False) -> ASTNode:
+        """
+        Parses potential instruction call or a variable set
+        :param force_no_setters: represents whether identifier can be parsed as
+        :return: the new instruction
+        """
+        self.next_token()
+
+        self.expect_current_token_one_of(
+            (TokenType.OPERATOR, "=") if not force_no_setters else (None, None),
+            (TokenType.OPERATOR, "+=") if not force_no_setters else (None, None),
+            (TokenType.LPAREN, None)
+        )
+
+        current_token = self.current_token()
+        if current_token.token_type == TokenType.OPERATOR:
+            self.next_token()
+            expression_tokens = self._consume_expression()
+            subparser = self.create_subparser(expression_tokens)
+            ast_nodes = subparser.build_ast()
+
+        raise NotImplementedError
 
     def _consume_content(self, opening_token_type: TokenType, closing_token_type: TokenType) -> list[Token]:
         """
@@ -308,6 +360,13 @@ class Parser:
 
         return consumed_tokens
 
+    def _consume_expression(self) -> list[Token]:
+        """
+        Consumes every token starting from first token at function call until an end token
+        :return: list of tokens inbetween
+        """
+        return self._consume_content(TokenType.NONE, TokenType.END)
+
     def _consume_braces(self) -> list[Token]:
         """
         Starting at left brace collects every token by popping them until matching right brace
@@ -334,9 +393,15 @@ class Parser:
         nodes = []
 
         while current_token is not None:
-            self.scope = []
             if current_token.token_type == TokenType.KEYWORD:
                 nodes.append(self._parse_keyword())
+            if current_token.token_type == TokenType.DECORATOR:
+                decorator_content = self._parse_decorator()
+                for decorator_content_node in decorator_content:
+                    nodes.append(decorator_content_node)
+
+            if current_token.token_type == TokenType.IDENTIFIER:
+                nodes.append(self._parse_identifier())
 
             current_token = self.next_token()
 
