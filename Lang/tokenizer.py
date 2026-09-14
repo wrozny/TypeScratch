@@ -25,11 +25,11 @@ class TokenType(StrEnum):
     NEWFILE = "NEWFILE"
 
     EOF = "EOF"
+    NONE = "NONE"  # doesn't exist in tokenizer, but I need it for expression parsing
 
 
 token_specification = [
     ('NUMBER', r'\d+(\.\d*)?'),
-    # ('STRING', r'"[^"]*"'),
     ('STRING', r'("[^"]*"|\'[^\']*\')'),
     ('DECORATOR', r'@[A-Za-z_]\w*'),
     ('IDENTIFIER', r'[A-Za-z_]\w*'),
