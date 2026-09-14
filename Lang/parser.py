@@ -1,9 +1,21 @@
 from .tokenizer import *
 from .scratch_ast import *
-from .mangling import get_unique_mangle_id_generator
 import os
 
-UNIQUE_ID_GENERATOR = get_unique_mangle_id_generator()
+
+def create_id_generator():
+    """
+    Creates a new generator that returns next numbers
+    :return:
+    """
+    yield None
+    current_id = 0
+    while True:
+        yield str(current_id)
+        current_id += 1
+
+
+UNIQUE_ID_GENERATOR = create_id_generator()
 
 
 class ParseException(Exception):
