@@ -7,7 +7,10 @@ class ParserTestCases(unittest.TestCase):
         text = """
             sprite Duck {
                 @start {
-                   
+                    
+                }
+                @start {
+                    say("Mango")
                 }
             }
         """
@@ -17,6 +20,15 @@ class ParserTestCases(unittest.TestCase):
 
         my_ast = lang_parser.build_ast()
 
+        print(my_ast)
+
+    def test_decorators(self):
+        text = "@start {} " \
+               "@start {}"
+        lang_parser = Parser()
+        lang_parser.feed_text(text)
+
+        my_ast = lang_parser.build_ast()
         print(my_ast)
 
 
