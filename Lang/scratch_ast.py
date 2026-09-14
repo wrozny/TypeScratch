@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import ClassVar
 
 
 @dataclass
@@ -19,6 +21,19 @@ class Reporter(ASTNode):
     Defines every reporter block (the rounded block in scratch that returns a value)
     """
     pass
+
+
+@dataclass
+class Instruction(ASTNode):
+    """
+    Defines instruction blocks, where:
+
+    instruction name is used as an identifier for instructions lookup dictionary
+    which later defines how positional arguments translate
+    into actual project.json complex structures of that certain instruction
+    """
+    instruction_name: str
+    arguments: list[Reporter | LiteralValue]
 
 
 @dataclass
@@ -44,17 +59,13 @@ class VariableDeclaration(ASTNode):
 
 
 @dataclass
-class VariableSet(ASTNode):
+class VariableSet(Instruction):
     """
     Defines the "Set Variable" block in scratch or in parse terms the operation of setting a variable
     """
     variable_name: str
     new_value: Reporter
-
-
-@dataclass
-class EntryPoint(ASTNode):
-    body: list[ASTNode]
+    instruction_name: ClassVar[str] = "__setvariableto"
 
 
 @dataclass
@@ -66,11 +77,12 @@ class VariableReference(Reporter):
 
 
 @dataclass
-class ParameterReference(Reporter):
+class EntryPoint(Instruction):
     """
-    Defines a reference to a procedure parameter
+    Defines abstraction for scratch event blocks like
+    when flag clicked or when key pressed (key)
     """
-    parameter_name: str
+    body: list[Instruction]
 
 
 @dataclass
@@ -80,8 +92,11 @@ class ProcedureDefinition(EntryPoint):
 
 
 @dataclass
-class Instruction(ASTNode):
-    pass
+class ParameterReference(Reporter):
+    """
+    Defines a reference to a procedure parameter
+    """
+    parameter_name: str
 
 
 class ScratchOperator(StrEnum):
@@ -100,16 +115,6 @@ class MathOperation(Reporter):
     operator: ScratchOperator
     left_value: LiteralValue | Reporter
     right_value: LiteralValue | Reporter
-
-
-@dataclass
-class BlockDefinition:
-    opcode: str
-
-
-@dataclass
-class EntryPoint(BlockDefinition):
-    pass
 
 
 @dataclass
