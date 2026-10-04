@@ -25,7 +25,6 @@ class TokenType(StrEnum):
     NEWFILE = "NEWFILE"
 
     EOF = "EOF"
-    NONE = "NONE"  # doesn't exist in tokenizer, but I need it for expression parsing
 
 
 token_specification = [
@@ -33,14 +32,15 @@ token_specification = [
     ('STRING', r'("[^"]*"|\'[^\']*\')'),
     ('DECORATOR', r'@[A-Za-z_]\w*'),
     ('IDENTIFIER', r'[A-Za-z_]\w*'),
-    (TokenType.OPERATOR, r'[+\-*/><=]'),
+    (TokenType.OPERATOR, r'\+=|-=|\*=|/=|%=|==|!=|<=|>=|[+\-*/%><=!]'),
     (TokenType.LBRACE, r'\{'),
     (TokenType.RBRACE, r'\}'),
     (TokenType.LPAREN, r'\('),
     (TokenType.RPAREN, r'\)'),
     (TokenType.SYMBOL, r'[:,]'),
     ('NEWLINE', r'\n'),
-    ('SKIP', r'[ \t]+'),
+    (TokenType.END, r';'),
+    ('SKIP', r'[ \t\r]+'),
     ('MISMATCH', r'.'),
 ]
 
@@ -59,13 +59,16 @@ class Token:
     column: int
 
     def __str__(self):
+        """Returns a readable token type and value."""
         return f"({self.token_type}, \"{self.value}\")"
 
     def __repr__(self):
+        """Returns the readable token representation used in collections."""
         return self.__str__()
 
 
 def tokenize(text: str) -> list[Token]:
+    """Converts source text into positioned tokens followed by an EOF token."""
     tokens = []
     line_num = 1
     line_start = 0
@@ -79,12 +82,13 @@ def tokenize(text: str) -> list[Token]:
             case "NUMBER":
                 tokens.append(Token(TokenType.LITERAL, value, line_num, column))
             case "STRING":
-                # Strip the quotes off the value for the AST
-                tokens.append(Token(TokenType.LITERAL, value.strip('"').strip("'"), line_num, column))
+                tokens.append(Token(TokenType.LITERAL, value[1:-1], line_num, column))
             case "IDENTIFIER":
                 token_type = TokenType.IDENTIFIER
                 if value in keywords:
                     token_type = TokenType.KEYWORD
+                elif value in ("and", "or", "not"):
+                    token_type = TokenType.OPERATOR
                 tokens.append(Token(token_type, value, line_num, column))
             case "DECORATOR":
                 tokens.append(Token(TokenType.DECORATOR, value, line_num, column))
