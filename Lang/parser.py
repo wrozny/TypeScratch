@@ -1,408 +1,376 @@
-from .tokenizer import *
-from .scratch_ast import *
 import os
 
-
-def create_id_generator():
-    """
-    Creates a new generator that returns next numbers
-    :return:
-    """
-    yield None
-    current_id = 0
-    while True:
-        yield str(current_id)
-        current_id += 1
-
-
-UNIQUE_ID_GENERATOR = create_id_generator()
+from .tokenizer import Token, TokenType, tokenize
+from .scratch_ast import (
+    ASTNode, EntryPoint, FunctionCall, MathOperation, ProcedureDefinition,
+    Reporter, ScratchOperator, SpriteDefinition, UnaryOperation, Value,
+    VariableDeclaration, VariableReference, VariableSet,
+)
 
 
 class ParseException(Exception):
-    """
-        Exception thrown in Parser class
-    """
-    pass
+    """Defines errors caused by unsupported parser features or invalid parser usage."""
 
 
 class Parser:
+    """Builds syntax trees using a cursor without removing tokens from the input."""
+
+    _BINARY_OPERATORS = {
+        "or": (1, ScratchOperator.OR),
+        "and": (2, ScratchOperator.AND),
+        "==": (3, ScratchOperator.EQUAL),
+        "!=": (3, ScratchOperator.NOT_EQUAL),
+        "<": (4, ScratchOperator.LESS_THAN),
+        ">": (4, ScratchOperator.GREATER_THAN),
+        "<=": (4, ScratchOperator.LESS_EQUAL),
+        ">=": (4, ScratchOperator.GREATER_EQUAL),
+        "+": (5, ScratchOperator.ADD),
+        "-": (5, ScratchOperator.SUBTRACT),
+        "*": (6, ScratchOperator.MULTIPLY),
+        "/": (6, ScratchOperator.DIVIDE),
+        "%": (6, ScratchOperator.MODULO),
+    }
+    _ASSIGNMENT_OPERATORS = {"=", "+=", "-=", "*=", "/=", "%="}
+
     def __init__(self):
+        """Initializes the token cursor, source location and parser context."""
         self.current_token_index = 0
-        self.tokens = []
-        self.tokens_count = len(self.tokens)
+        self.tokens: list[Token] = []
+        self.tokens_count = 0
         self.current_file = None
         self.scope = []
+        self._parenthesis_depth = 0
 
     def feed_text(self, text: str, add_new_file_token: bool = True):
         """
-        Feeds the text to be parsed
-        :param text: Text to be parsed
-        :param add_new_file_token: Tells whether to add a token saying where new feed_text call happened
+        Appends source text to the parser input.
+        :param text: Source text to tokenize
+        :param add_new_file_token: Whether to insert a source boundary marker
         """
         if add_new_file_token:
-            self.tokens.append(Token(TokenType.NEWFILE, "", 0, 0))
-
-        for token in tokenize(text):
-            self.tokens.append(token)
-        self.tokens_count = len(self.tokens)
+            self.feed_tokens([Token(TokenType.NEWFILE, "", 0, 0)])
+        self.feed_tokens(tokenize(text))
 
     def feed_file(self, path: str):
         """
-        Feeds the text from a file to be parsed
-        :param path: Path of the file to be parsed
+        Appends a source file to the parser input.
+        :param path: Path of the file to parse
         """
-        if os.path.isfile(path):
-            with open(file=path, encoding="utf-8", mode="r") as source:
-                self.tokens.append(Token(TokenType.NEWFILE, path, 0, 0))
-                self.feed_text(source.read(), add_new_file_token=False)
-        else:
+        if not os.path.isfile(path):
             raise ParseException(f"File feeding to parser failed, path {path} isn't a real path!")
+        with open(path, encoding="utf-8") as source:
+            self.feed_tokens([Token(TokenType.NEWFILE, path, 0, 0)])
+            self.feed_text(source.read(), add_new_file_token=False)
 
     def feed_tokens(self, tokens: list[Token]):
         """
-        Feeds the provided tokens by appending them to tokens list
-        :param tokens: Tokens to feed
+        Appends a copy of the provided tokens without taking ownership of the list.
+        :param tokens: Tokens to append
         """
-        if self.tokens_count == 0:
-            self.tokens = tokens
-        else:
-            for token in tokens:
-                self.tokens.append(token)
-
+        self.tokens.extend(tokens)
         self.tokens_count = len(self.tokens)
 
     def current_token(self) -> Token | None:
-        """
-        Returns current token being parsed
-        :return: Current token being parsed
-        """
+        """Returns the token at the cursor, or None after the input ends."""
         if self.current_token_index < self.tokens_count:
             return self.tokens[self.current_token_index]
-
-        return None
-
-    def pop_current_token(self) -> Token | None:
-        """
-        Removes the current token from tokens list and returns it, automatically moves forward because of it
-        :return: Current token
-        """
-        if self.current_token_index < self.tokens_count:
-            self.tokens_count -= 1
-            return self.tokens.pop(self.current_token_index)
-
         return None
 
     def next_token(self) -> Token | None:
-        """
-        Returns the next token in tokens list
-        :return: Next token
-        """
-        self.current_token_index += 1
-        if self.current_token_index > self.tokens_count:
-            self.current_token_index = self.tokens_count
+        """Advances the cursor by one token and returns the new current token."""
+        self.current_token_index = min(self.current_token_index + 1, self.tokens_count)
         return self.current_token()
 
-    def expect_current_token(self, token_type: TokenType | None = None, token_value: str | None = None) -> Token:
+    def expect_current_token(self, token_type: TokenType | None = None,
+                             token_value: str | None = None) -> Token:
         """
-        Throws a SyntaxError when current token type or token value doesn't match the arguments.
-        token_type and token_value are None by default which means that they aren't required.
-        This method ensures that current token exists, otherwise throws ParseException.
-        :param token_type: token type to match
-        :param token_value: token value to match
-        :return: Current token
+        Validates the current token and raises a positioned SyntaxError on mismatch.
+        :param token_type: Required token type, or None for any type
+        :param token_value: Required token value, or None for any value
+        :return: The matching current token
         """
-        current_token = self.current_token()
-        if current_token is None:
-            raise ParseException(f"Expected next token is a None! Expected: ({token_type}, {token_value})")
-
-        token_type_mismatch = token_type is not None and current_token.token_type != token_type
-        token_value_mismatch = token_value is not None and current_token.value != token_value
-
-        if token_type_mismatch or token_value_mismatch:
-            raise SyntaxError(
-                f"Expected {' '.join([token_type, token_value])} "
-                f"got {' '.join([current_token.token_type, current_token.value])} instead, "
-                f"line: {current_token.line}, column: {current_token.column}"
-            )
-
-        return current_token
+        token = self.current_token()
+        if token is None:
+            self._syntax_error(f"Expected ({token_type}, {token_value}), got end of input")
+        if ((token_type is not None and token.token_type != token_type)
+                or (token_value is not None and token.value != token_value)):
+            self._syntax_error(f"Expected ({token_type}, {token_value}), got {token}", token)
+        return token
 
     def expect_current_token_one_of(self, *expected: tuple[TokenType | None, str | None]) -> Token:
         """
-        Ensures that the current token matches at least one of the provided
-        (token_type, token_value) pairs.
-
-        None means that the corresponding field isn't required to match.
-        Throws ParseException if there is no current token.
-        Throws SyntaxError if the current token matches none of the expected pairs.
-
-        :param expected: Expected (token_type, token_value) pairs.
-        :return: Current token
+        Validates that the current token matches one of the provided pairs.
+        :param expected: Allowed token type and value pairs; None matches any value
+        :return: The matching current token
         """
-        current_token = self.current_token()
-
-        if current_token is None:
-            raise ParseException(f"Expected one of: {expected}, got None!")
-
+        token = self.expect_current_token()
         for token_type, token_value in expected:
-            token_type_mismatch = token_type is not None and current_token.token_type != token_type
-            token_value_mismatch = token_value is not None and current_token.value != token_value
+            if ((token_type is None or token.token_type == token_type)
+                    and (token_value is None or token.value == token_value)):
+                return token
+        self._syntax_error(f"Expected one of {expected}, got {token}", token)
 
-            if not token_type_mismatch and not token_value_mismatch:
-                return current_token
+    def _syntax_error(self, message: str, token: Token | None = None):
+        """Raises a syntax error including the available file, line and column."""
+        token = token or self.current_token()
+        if token is None and self.tokens:
+            token = self.tokens[-1]
+        location = f"line: {token.line}, column: {token.column}" if token else "end of input"
+        if self.current_file:
+            location = f"file: {self.current_file}, {location}"
+        raise SyntaxError(f"{message}, {location}")
 
-        raise SyntaxError(
-            f"Expected one of {expected}, "
-            f"got ({current_token.token_type}, {current_token.value}) instead, "
-            f"line: {current_token.line}, column: {current_token.column}"
-        )
-
-    def create_subparser(self, starting_tokens: list[Token] | None = None) -> "Parser":
+    def _create_subparser(self, starting_tokens: list[Token]) -> "Parser":
         """
-        Creates a new Parser object that saves
-        :return:
+        Creates a parser for a block with an independent cursor and copied context.
+        :param starting_tokens: Tokens belonging to the nested block
+        :return: The nested parser
         """
+        parser = Parser()
+        parser.scope = self.scope.copy()
+        parser.current_file = self.current_file
+        parser.feed_tokens(starting_tokens)
+        return parser
 
-        new_parser = Parser()
-        new_parser.scope = self.scope.copy()
-        new_parser.current_file = self.current_file
-
-        if starting_tokens is not None:
-            new_parser.feed_tokens(starting_tokens)
-
-        return new_parser
-
-    def _parse_sprite(self):
+    def _consume_content(self, opening_token_type: TokenType,
+                         closing_token_type: TokenType) -> list[Token]:
         """
-        Parses the sprite definition
-        :return:
+        Copies a balanced block's contents and advances past its closing token.
+        :param opening_token_type: Token type opening the block
+        :param closing_token_type: Token type closing the block
+        :return: Interior tokens, leaving the original token list unchanged
         """
-
-        if len(self.scope) > 0:
-            raise SyntaxError(
-                f"Sprite has to be declared in global scope! line: {self.current_token().line} column: {self.current_token().column}")
-
-        self.scope.append("Sprite")
-
-        sprite_token = self.current_token()
-        starting_line = sprite_token.line
-        starting_column = sprite_token.column
-
+        opening = self.expect_current_token(opening_token_type)
         self.next_token()
-        self.expect_current_token(token_type=TokenType.IDENTIFIER)
-        sprite_name = self.current_token().value
-
-        self.scope.append(sprite_name)
-
-        self.next_token()
-        sprite_definition_tokens = self._consume_braces()
-
-        internal_parser = self.create_subparser(sprite_definition_tokens)
-        internal_parser.scope.append("Sprite")
-        internal_parser.scope.append(sprite_name)
-
-        internal_nodes = internal_parser.build_ast()
-
-        sprite_definition = SpriteDefinition(
-            line=starting_line,
-            column=starting_column,
-            name=sprite_name,
-            procedures=[],
-            entry_points=[],
-            variable_declarations=[]
-        )
-
-        for node in internal_nodes:
-            if isinstance(node, ProcedureDefinition):
-                sprite_definition.procedures.append(node)
-            if isinstance(node, VariableDeclaration):
-                sprite_definition.variable_declarations.append(node)
-            if isinstance(node, EntryPoint):
-                sprite_definition.entry_points.append(node)
-
-        return sprite_definition
-
-    def _parse_decorator(self) -> list[EntryPoint | ProcedureDefinition]:
-        """
-        Method used to parse a decorator (aka entry points)
-        for decorator with braces body straight after do the instructions right at entry point
-        for decorator with procedure definition after it, call the procedure at entry point start
-        :return: List of entry points or procedure definitions
-        """
-
-        self.expect_current_token(token_type=TokenType.DECORATOR)
-        decorator_token = self.current_token()
-        decorator_value = decorator_token.value
-
-        decorator_value_to_instruction_name = {
-            "@start": "__whenflagclicked"
-        }
-
-        decorator_instruction_name = decorator_value_to_instruction_name.get(decorator_value)
-
-        if decorator_instruction_name is None:
-            raise SyntaxError(
-                f"Invalid entry point definition! Got {decorator_value} expected one of: {decorator_value_to_instruction_name.keys()}\n"
-                f"line {decorator_token.line} column {decorator_token.column}")
-
-        token_after_decorator = self.next_token()
-        self.expect_current_token_one_of(
-            (TokenType.LPAREN, None),  # additional decorator arguments
-            (TokenType.LBRACE, None),  # entry point directly contains body
-            (TokenType.KEYWORD, None)  # might be a procedure definition right after
-        )
-
-        if token_after_decorator.token_type == TokenType.LPAREN:
-            # !TODO parse parentheses for decorator arguments
-            raise ParseException("Decorator arguments are not yet implemented!")
-
-        if token_after_decorator.token_type == TokenType.LBRACE:
-            body_tokens = self._consume_braces()
-            body_parser = self.create_subparser(body_tokens)
-            body_parser.scope.append(next(UNIQUE_ID_GENERATOR))
-            body_ast = [
-                node
-                for node in body_parser.build_ast()
-                if isinstance(node, Instruction)
-            ]
-
+        start = self.current_token_index
+        depth = 1
+        while (token := self.current_token()) is not None:
+            if token.token_type in (TokenType.EOF, TokenType.NEWFILE):
+                self._syntax_error(f"Missing closing token {closing_token_type}", opening)
+            if token.token_type == opening_token_type:
+                depth += 1
+            elif token.token_type == closing_token_type:
+                depth -= 1
+                if depth == 0:
+                    contents = self.tokens[start:self.current_token_index]
+                    self.next_token()
+                    return contents
             self.next_token()
+        self._syntax_error(f"Missing closing token {closing_token_type}", opening)
 
-            return [
-                EntryPoint(
-                    line=decorator_token.line,
-                    column=decorator_token.column,
-                    instruction_name=decorator_instruction_name,
-                    arguments=[],
-                    body=body_ast
-                )
-            ]
+    def _consume_braces(self) -> list[Token]:
+        """Returns a brace block's contents and advances past its closing brace."""
+        return self._consume_content(TokenType.LBRACE, TokenType.RBRACE)
 
-        # !TODO implement the rest of simple decorator to body logic
-        raise NotImplementedError("Decorator parsing is not implemented yet!")
+    def _parse_sprite(self) -> SpriteDefinition:
+        """Parses a global sprite declaration and retains its complete ordered body."""
+        token = self.expect_current_token(TokenType.KEYWORD, "sprite")
+        if self.scope:
+            self._syntax_error("Sprite has to be declared in global scope", token)
+        self.next_token()
+        name = self.expect_current_token(TokenType.IDENTIFIER).value
+        self.next_token()
+        self._skip_newlines()
+        parser = self._create_subparser(self._consume_braces())
+        parser.scope.extend(["Sprite", name])
+        body = parser.build_ast()
+        return SpriteDefinition(
+            line=token.line, column=token.column, name=name,
+            procedures=[node for node in body if isinstance(node, ProcedureDefinition)],
+            entry_points=[node for node in body
+                          if isinstance(node, EntryPoint) and not isinstance(node, ProcedureDefinition)],
+            variable_declarations=[node for node in body if isinstance(node, VariableDeclaration)],
+            body=body,
+        )
+
+    def _parse_decorator(self) -> EntryPoint:
+        """Parses an entry point with a brace body, preserving declarations and calls."""
+        token = self.expect_current_token(TokenType.DECORATOR)
+        instruction_name = {"@start": "__whenflagclicked"}.get(token.value)
+        if instruction_name is None:
+            self._syntax_error(f"Invalid entry point definition {token.value}", token)
+        self.next_token()
+        self._skip_newlines()
+        if self.current_token() and self.current_token().token_type == TokenType.LPAREN:
+            raise ParseException("Decorator arguments are not yet implemented!")
+        parser = self._create_subparser(self._consume_braces())
+        parser.scope.append("EntryPoint")
+        return EntryPoint(line=token.line, column=token.column,
+                          instruction_name=instruction_name, arguments=[], body=parser.build_ast())
 
     def _parse_keyword(self) -> list[ASTNode]:
-        """
-        Parses the tokens based on the first token which has to be a keyword
-        :return:
-        """
-        self.expect_current_token(token_type=TokenType.KEYWORD)
+        """Dispatches supported keyword declarations and returns their AST nodes."""
+        token = self.expect_current_token(TokenType.KEYWORD)
+        if token.value == "sprite":
+            return [self._parse_sprite()]
+        if token.value == "let":
+            return self._parse_variable_declaration()
+        raise ParseException(f"Keyword {token.value} is not implemented yet inside _parse_keyword()")
 
-        current_token = self.current_token()
-
-        resolvers = {
-            "sprite": self._parse_sprite
-        }
-
-        resolve_parse = resolvers.get(current_token.value)
-
-        if resolve_parse is None:
-            raise ParseException(f"Keyword {current_token.value} is not implemented yet inside _parse_keyword()")
-
-        return resolve_parse()
+    def _parse_variable_declaration(self) -> list[ASTNode]:
+        """Parses a variable declaration and an optional initializer assignment."""
+        token = self.expect_current_token(TokenType.KEYWORD, "let")
+        self.next_token()
+        name = self.expect_current_token(TokenType.IDENTIFIER).value
+        self.next_token()
+        nodes: list[ASTNode] = [VariableDeclaration(
+            line=token.line, column=token.column, variable_name=name,
+            is_global=not self.scope,
+        )]
+        current = self.current_token()
+        if current and current.token_type == TokenType.OPERATOR and current.value == "=":
+            self.next_token()
+            value = self._parse_expression()
+            nodes.append(VariableSet(line=token.line, column=token.column,
+                                     arguments=[], variable_name=name, new_value=value))
+        self._expect_statement_end()
+        return nodes
 
     def _parse_identifier(self, force_no_setters: bool = False) -> ASTNode:
         """
-        Parses potential instruction call or a variable set
-        :param force_no_setters: represents whether identifier can be parsed as
-        :return: the new instruction
+        Parses an assignment or an expression starting with an identifier.
+        :param force_no_setters: Whether to forbid parsing an assignment
+        :return: An assignment, reference, call or binary expression
         """
-        self.next_token()
-
-        self.expect_current_token_one_of(
-            (TokenType.OPERATOR, "=") if not force_no_setters else (None, None),
-            (TokenType.OPERATOR, "+=") if not force_no_setters else (None, None),
-            (TokenType.LPAREN, None)
-        )
-
-        current_token = self.current_token()
-        if current_token.token_type == TokenType.OPERATOR:
+        token = self.expect_current_token(TokenType.IDENTIFIER)
+        following_index = self.current_token_index + 1
+        following = self.tokens[following_index] if following_index < self.tokens_count else None
+        if (not force_no_setters and following is not None
+                and following.token_type == TokenType.OPERATOR
+                and following.value in self._ASSIGNMENT_OPERATORS):
             self.next_token()
-            expression_tokens = self._consume_expression()
-            subparser = self.create_subparser(expression_tokens)
-            ast_nodes = subparser.build_ast()
+            operator = self.current_token()
+            self.next_token()
+            value = self._parse_expression()
+            if operator.value != "=":
+                value = MathOperation(
+                    line=operator.line, column=operator.column,
+                    operator=self._BINARY_OPERATORS[operator.value[:-1]][1],
+                    left_value=VariableReference(line=token.line, column=token.column,
+                                                 variable_name=token.value),
+                    right_value=value,
+                )
+            node = VariableSet(line=token.line, column=token.column,
+                               arguments=[], variable_name=token.value, new_value=value)
+        else:
+            node = self._parse_expression()
+        if not force_no_setters:
+            self._expect_statement_end()
+        return node
 
-        raise NotImplementedError
+    def _skip_newlines(self):
+        """Advances over line breaks without accepting semicolons or file boundaries."""
+        while (token := self.current_token()) is not None:
+            if token.token_type != TokenType.END or token.value != "\n":
+                return
+            self.next_token()
 
-    def _consume_content(self, opening_token_type: TokenType, closing_token_type: TokenType) -> list[Token]:
+    def _skip_expression_newlines(self):
+        """Allows multiline expressions only inside parentheses or argument lists."""
+        if self._parenthesis_depth:
+            self._skip_newlines()
+
+    def _parse_expression(self, minimum_precedence: int = 1) -> Reporter:
         """
-        Starting at left token pops every token in between from original list until right token and returns it as a list of tokens
-        this ensures that inner contents with same left token and right token type will be also caught according to depth
-        :param opening_token_type: Token type that opens contents
-        :param closing_token_type: Token type that ends contents
-        :return: List of tokens in between
+        Parses left associative binary operators using precedence climbing.
+        :param minimum_precedence: Lowest operator precedence accepted in this subtree
+        :return: The expression tree, leaving its delimiter at the cursor
         """
+        left = self._parse_unary()
+        while True:
+            self._skip_expression_newlines()
+            token = self.current_token()
+            operator = self._BINARY_OPERATORS.get(token.value) if token else None
+            if (token is None or token.token_type != TokenType.OPERATOR
+                    or operator is None or operator[0] < minimum_precedence):
+                return left
+            self.next_token()
+            right = self._parse_expression(operator[0] + 1)
+            left = MathOperation(line=token.line, column=token.column,
+                                 operator=operator[1], left_value=left, right_value=right)
 
-        if self.current_token().token_type != opening_token_type:
-            raise ParseException(
-                f"Can't start consuming content if starting token {self.current_token()} isn't of type {opening_token_type}!")
+    def _parse_unary(self) -> Reporter:
+        """Parses prefix signs and logical negation before binary operators."""
+        self._skip_expression_newlines()
+        token = self.current_token()
+        if token and token.token_type == TokenType.OPERATOR and token.value in ("-", "+", "!", "not"):
+            self.next_token()
+            return UnaryOperation(line=token.line, column=token.column,
+                                  operator=token.value, operand=self._parse_unary())
+        return self._parse_primary()
 
-        self.pop_current_token()
+    def _parse_primary(self) -> Reporter:
+        """Parses a value, variable reference, named function call or grouped expression."""
+        self._skip_expression_newlines()
+        token = self.expect_current_token()
+        if token.token_type == TokenType.LITERAL:
+            self.next_token()
+            return Value(line=token.line, column=token.column, value=token.value)
+        if token.token_type == TokenType.IDENTIFIER:
+            self.next_token()
+            if self.current_token() and self.current_token().token_type == TokenType.LPAREN:
+                return self._parse_call(token)
+            return VariableReference(line=token.line, column=token.column, variable_name=token.value)
+        if token.token_type == TokenType.LPAREN:
+            self.next_token()
+            self._parenthesis_depth += 1
+            try:
+                expression = self._parse_expression()
+                self.expect_current_token(TokenType.RPAREN)
+                self.next_token()
+                return expression
+            finally:
+                self._parenthesis_depth -= 1
+        self._syntax_error(f"Expected an expression, got {token}", token)
 
-        depth = 1
-        consumed_tokens = []
-
-        while depth != 0:
-            next_token = self.pop_current_token()
-
-            if next_token.token_type == TokenType.EOF:
-                raise SyntaxError(
-                    f"Missing closing token while consuming content, file ended at depth: {depth}, closing token type: {closing_token_type}")
-
-            if next_token.token_type == opening_token_type:
-                depth += 1
-
-            if next_token.token_type == closing_token_type:
-                depth -= 1
-
-            if depth > 0:
-                consumed_tokens.append(next_token)
-
-        return consumed_tokens
-
-    def _consume_expression(self) -> list[Token]:
+    def _parse_call(self, name_token: Token) -> FunctionCall:
         """
-        Consumes every token starting from first token at function call until an end token
-        :return: list of tokens inbetween
+        Parses comma separated expression arguments for a named call.
+        :param name_token: Identifier naming the called function
+        :return: A call expression with its argument trees
         """
-        return self._consume_content(TokenType.NONE, TokenType.END)
+        self.expect_current_token(TokenType.LPAREN)
+        self.next_token()
+        self._parenthesis_depth += 1
+        arguments = []
+        try:
+            self._skip_expression_newlines()
+            if self.current_token() and self.current_token().token_type != TokenType.RPAREN:
+                while True:
+                    arguments.append(self._parse_expression())
+                    token = self.current_token()
+                    if token and token.token_type == TokenType.SYMBOL and token.value == ",":
+                        self.next_token()
+                    else:
+                        break
+            self.expect_current_token(TokenType.RPAREN)
+            self.next_token()
+        finally:
+            self._parenthesis_depth -= 1
+        return FunctionCall(line=name_token.line, column=name_token.column,
+                            function_name=name_token.value, arguments=arguments)
 
-    def _consume_braces(self) -> list[Token]:
-        """
-        Starting at left brace collects every token by popping them until matching right brace
-        and returns the list of tokens for further interpretation
-        :return:
-        """
-        return self._consume_content(TokenType.LBRACE, TokenType.RBRACE)
-
-    def _consume_parentheses(self) -> list[Token]:
-        """
-        Starting at left parenthesis collects every token by popping them until matching right parenthesis
-        and returns the list of tokens for further interpretation
-        :return:
-        """
-        return self._consume_content(TokenType.LPAREN, TokenType.RPAREN)
+    def _expect_statement_end(self):
+        """Rejects leftover expression tokens unless a statement or input boundary follows."""
+        token = self.current_token()
+        if token is not None and token.token_type not in (TokenType.END, TokenType.EOF, TokenType.NEWFILE):
+            self._syntax_error(f"Expected end of statement, got {token}", token)
 
     def build_ast(self) -> list[ASTNode]:
-        """
-        Parses the provided tokens and constructs an abstract syntax tree
-        :return:
-        """
-        current_token = self.current_token()
-
+        """Parses all supplied tokens into a complete list of AST nodes."""
         nodes = []
-
-        while current_token is not None:
-            if current_token.token_type == TokenType.KEYWORD:
-                nodes.append(self._parse_keyword())
-            if current_token.token_type == TokenType.DECORATOR:
-                decorator_content = self._parse_decorator()
-                for decorator_content_node in decorator_content:
-                    nodes.append(decorator_content_node)
-
-            if current_token.token_type == TokenType.IDENTIFIER:
+        while (token := self.current_token()) is not None:
+            if token.token_type in (TokenType.END, TokenType.EOF, TokenType.NEWFILE):
+                if token.token_type == TokenType.NEWFILE:
+                    self.current_file = token.value
+                self.next_token()
+            elif token.token_type == TokenType.KEYWORD:
+                nodes.extend(self._parse_keyword())
+            elif token.token_type == TokenType.DECORATOR:
+                nodes.append(self._parse_decorator())
+            elif token.token_type == TokenType.IDENTIFIER:
                 nodes.append(self._parse_identifier())
-
-            current_token = self.next_token()
-
+            else:
+                nodes.append(self._parse_expression())
+                self._expect_statement_end()
         return nodes
