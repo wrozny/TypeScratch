@@ -1,0 +1,9 @@
+sprite Duck {
+    @start {
+        if a > sin(30) * 20 {
+            say("Hi")
+        } else {
+            say("Goodbye")
+        }
+    }
+}
