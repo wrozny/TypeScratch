@@ -286,6 +286,24 @@ def procedure_test() -> sb3_project.Project:
     return project
 
 
+def _parse_file(file_path: str):
+    if not os.path.exists(file_path):
+        return
+
+    parser = Parser()
+    parser.feed_file(file_path)
+    ast = parser.build_ast()
+
+    from pprint import pprint
+
+    pprint(ast, width=100)
+
+
+def parser_expression_test1():
+    _parse_file("LangDemos/expressions.tsl")
+
+
+
 def parser_test1():
     parser = Parser()
     file_path = "LangDemos/hello_world.tsl"
@@ -294,4 +312,4 @@ def parser_test1():
 
 
 if __name__ == "__main__":
-    parser_test1()
+    parser_expression_test1()
