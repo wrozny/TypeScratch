@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import ClassVar
 
 
 @dataclass
@@ -69,7 +68,7 @@ class VariableSet(Instruction):
     """
     variable_name: str
     new_value: Reporter
-    instruction_name: ClassVar[str] = "__setvariableto"
+    instruction_name: str = field(default="__setvariableto", init=False)
 
 
 @dataclass
@@ -146,11 +145,37 @@ class FunctionCall(Reporter):
 
 
 @dataclass
+class Conditional(ASTNode):
+    """Defines a condition and its branches; None means no else branch was written."""
+    condition: Reporter
+    body: list[ASTNode]
+    else_body: list[ASTNode] | None = None
+
+
+@dataclass
+class WhileLoop(ASTNode):
+    """Defines a loop whose condition is checked before every iteration."""
+    condition: Reporter
+    body: list[ASTNode]
+
+
+@dataclass
+class RepeatLoop(ASTNode):
+    """Defines a loop whose iteration count is evaluated once on entry."""
+    count: Reporter
+    body: list[ASTNode]
+
+
+@dataclass
+class ForeverLoop(ASTNode):
+    """Defines an unconditional loop with no expression in its header."""
+    body: list[ASTNode]
+
+
+@dataclass
 class SpriteDefinition(ASTNode):
+    """Defines a sprite with all its declarations and entry points in source order."""
     name: str
-    entry_points: list[EntryPoint]
-    procedures: list[ProcedureDefinition]
-    variable_declarations: list[VariableDeclaration]
     body: list[ASTNode] = field(default_factory=list)
 
 
