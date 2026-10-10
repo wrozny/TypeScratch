@@ -28,9 +28,10 @@ class ParserTestCases(unittest.TestCase):
         sprite = nodes[0]
         self.assertIsInstance(sprite, SpriteDefinition)
         self.assertEqual(sprite.name, "Duck")
-        self.assertEqual(len(sprite.entry_points), 2)
-        self.assertEqual(sprite.entry_points[0].body, [])
-        call = sprite.entry_points[1].body[0]
+        self.assertEqual(len(sprite.body), 2)
+        self.assertTrue(all(isinstance(node, EntryPoint) for node in sprite.body))
+        self.assertEqual(sprite.body[0].body, [])
+        call = sprite.body[1].body[0]
         self.assertIsInstance(call, FunctionCall)
         self.assertEqual(call.function_name, "say")
         self.assertEqual(call.arguments[0].value, "Mango")
@@ -39,8 +40,9 @@ class ParserTestCases(unittest.TestCase):
         """Preserves the local test case with a single empty entry point."""
         sprite = self._parse("sprite Duck { @start {} }")[0]
         self.assertEqual(sprite.name, "Duck")
-        self.assertEqual(len(sprite.entry_points), 1)
-        self.assertEqual(sprite.entry_points[0].body, [])
+        self.assertEqual(len(sprite.body), 1)
+        self.assertIsInstance(sprite.body[0], EntryPoint)
+        self.assertEqual(sprite.body[0].body, [])
 
     def test_decorators(self):
         """Parses adjacent entry points without skipping the second decorator."""
@@ -84,7 +86,19 @@ class ParserTestCases(unittest.TestCase):
         sprite = self._parse("sprite Duck { let x = 10\n@start {} }")[0]
         self.assertEqual([type(node) for node in sprite.body],
                          [VariableDeclaration, VariableSet, EntryPoint])
-        self.assertFalse(sprite.variable_declarations[0].is_global)
+        self.assertFalse(sprite.body[0].is_global)
+
+    def test_sprite_body_preserves_source_order(self):
+        """Retains declarations, initializers and multiple entry points in one ordered body."""
+        sprite = self._parse('sprite Duck { let x = 1\n@start { say(x) }\n'
+                             'let y = 2\n@start { say(y) } }')[0]
+        self.assertEqual([type(node) for node in sprite.body],
+                         [VariableDeclaration, VariableSet, EntryPoint,
+                          VariableDeclaration, VariableSet, EntryPoint])
+        self.assertEqual([sprite.body[index].variable_name for index in (0, 1, 3, 4)],
+                         ["x", "x", "y", "y"])
+        self.assertEqual(sprite.body[2].body[0].arguments[0].variable_name, "x")
+        self.assertEqual(sprite.body[5].body[0].arguments[0].variable_name, "y")
 
     def test_values_share_one_class(self):
         """Uses Value for numeric and string literals without separate literal classes."""
