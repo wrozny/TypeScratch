@@ -1,5 +1,9 @@
 .venv/
 .idea/
+
+# Local development instructions and project notes
+/AGENTS.md
+/PROJECT_NOTES.md
 tests/
 
 # Byte-compiled / optimized / DLL files
