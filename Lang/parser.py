@@ -2,8 +2,9 @@ import os
 
 from .tokenizer import Token, TokenType, tokenize
 from .scratch_ast import (
-    ASTNode, EntryPoint, FunctionCall, MathOperation, ProcedureDefinition,
-    Reporter, ScratchOperator, SpriteDefinition, UnaryOperation, Value,
+    ASTNode, Conditional, EntryPoint, ForeverLoop, FunctionCall, MathOperation,
+    RepeatLoop, Reporter, ScratchOperator, SpriteDefinition,
+    UnaryOperation, Value, WhileLoop,
     VariableDeclaration, VariableReference, VariableSet,
 )
 
@@ -13,7 +14,10 @@ class ParseException(Exception):
 
 
 class Parser:
-    """Builds syntax trees using a cursor without removing tokens from the input."""
+    """
+    Builds syntax trees using a cursor without removing tokens from the input.
+    Operator tables are grammar rules shared by every parser instance.
+    """
 
     _BINARY_OPERATORS = {
         "or": (1, ScratchOperator.OR),
@@ -33,7 +37,10 @@ class Parser:
     _ASSIGNMENT_OPERATORS = {"=", "+=", "-=", "*=", "/=", "%="}
 
     def __init__(self):
-        """Initializes the token cursor, source location and parser context."""
+        """
+        Initializes the token cursor, source location and parser context.
+        Parenthesis depth lets recursive expression methods share newline handling.
+        """
         self.current_token_index = 0
         self.tokens: list[Token] = []
         self.tokens_count = 0
@@ -162,6 +169,66 @@ class Parser:
         """Returns a brace block's contents and advances past its closing brace."""
         return self._consume_content(TokenType.LBRACE, TokenType.RBRACE)
 
+    def _parse_block(self, context: str) -> list[ASTNode]:
+        """Parses a brace body in a copied context without removing input tokens."""
+        self._skip_newlines()
+        parser = self._create_subparser(self._consume_braces())
+        parser.scope.append(context)
+        return parser.build_ast()
+
+    def _parse_block_expression(self) -> Reporter:
+        """Parses a header expression and requires an opening brace after it."""
+        expression = self._parse_expression()
+        self._skip_newlines()
+        self.expect_current_token(TokenType.LBRACE)
+        return expression
+
+    def _parse_conditional(self) -> Conditional:
+        """Parses if, an optional else body, and recursive else if branches."""
+        token = self.expect_current_token(TokenType.KEYWORD, "if")
+        self.next_token()
+        condition = self._parse_block_expression()
+        body = self._parse_block("If")
+        else_body = None
+        after_body = self.current_token_index
+        self._skip_newlines()
+        following = self.current_token()
+        if following and following.token_type == TokenType.KEYWORD and following.value == "else":
+            self.next_token()
+            self._skip_newlines()
+            following = self.current_token()
+            if following and following.token_type == TokenType.KEYWORD and following.value == "if":
+                else_body = [self._parse_conditional()]
+            else:
+                else_body = self._parse_block("Else")
+        else:
+            self.current_token_index = after_body
+        return Conditional(line=token.line, column=token.column, condition=condition,
+                           body=body, else_body=else_body)
+
+    def _parse_while(self) -> WhileLoop:
+        """Parses a while condition followed by its brace body."""
+        token = self.expect_current_token(TokenType.KEYWORD, "while")
+        self.next_token()
+        condition = self._parse_block_expression()
+        return WhileLoop(line=token.line, column=token.column, condition=condition,
+                         body=self._parse_block("While"))
+
+    def _parse_repeat(self) -> RepeatLoop:
+        """Parses a repeat count expression followed by its brace body."""
+        token = self.expect_current_token(TokenType.KEYWORD, "repeat")
+        self.next_token()
+        count = self._parse_block_expression()
+        return RepeatLoop(line=token.line, column=token.column, count=count,
+                          body=self._parse_block("Repeat"))
+
+    def _parse_forever(self) -> ForeverLoop:
+        """Parses a forever body, rejecting expressions in its header."""
+        token = self.expect_current_token(TokenType.KEYWORD, "forever")
+        self.next_token()
+        return ForeverLoop(line=token.line, column=token.column,
+                           body=self._parse_block("Forever"))
+
     def _parse_sprite(self) -> SpriteDefinition:
         """Parses a global sprite declaration and retains its complete ordered body."""
         token = self.expect_current_token(TokenType.KEYWORD, "sprite")
@@ -176,10 +243,6 @@ class Parser:
         body = parser.build_ast()
         return SpriteDefinition(
             line=token.line, column=token.column, name=name,
-            procedures=[node for node in body if isinstance(node, ProcedureDefinition)],
-            entry_points=[node for node in body
-                          if isinstance(node, EntryPoint) and not isinstance(node, ProcedureDefinition)],
-            variable_declarations=[node for node in body if isinstance(node, VariableDeclaration)],
             body=body,
         )
 
@@ -193,10 +256,9 @@ class Parser:
         self._skip_newlines()
         if self.current_token() and self.current_token().token_type == TokenType.LPAREN:
             raise ParseException("Decorator arguments are not yet implemented!")
-        parser = self._create_subparser(self._consume_braces())
-        parser.scope.append("EntryPoint")
         return EntryPoint(line=token.line, column=token.column,
-                          instruction_name=instruction_name, arguments=[], body=parser.build_ast())
+                          instruction_name=instruction_name, arguments=[],
+                          body=self._parse_block("EntryPoint"))
 
     def _parse_keyword(self) -> list[ASTNode]:
         """Dispatches supported keyword declarations and returns their AST nodes."""
@@ -205,6 +267,16 @@ class Parser:
             return [self._parse_sprite()]
         if token.value == "let":
             return self._parse_variable_declaration()
+        if token.value == "if":
+            return [self._parse_conditional()]
+        if token.value == "while":
+            return [self._parse_while()]
+        if token.value == "repeat":
+            return [self._parse_repeat()]
+        if token.value == "forever":
+            return [self._parse_forever()]
+        if token.value == "else":
+            self._syntax_error("Else must follow an if body", token)
         raise ParseException(f"Keyword {token.value} is not implemented yet inside _parse_keyword()")
 
     def _parse_variable_declaration(self) -> list[ASTNode]:
@@ -297,10 +369,10 @@ class Parser:
             self.next_token()
             return UnaryOperation(line=token.line, column=token.column,
                                   operator=token.value, operand=self._parse_unary())
-        return self._parse_primary()
+        return self._parse_operand()
 
-    def _parse_primary(self) -> Reporter:
-        """Parses a value, variable reference, named function call or grouped expression."""
+    def _parse_operand(self) -> Reporter:
+        """Parses one operand: a value, reference, named call or parenthesized expression."""
         self._skip_expression_newlines()
         token = self.expect_current_token()
         if token.token_type == TokenType.LITERAL:
