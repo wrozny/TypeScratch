@@ -47,7 +47,7 @@ token_specification = [
 tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_specification)
 
 keywords = [
-    "let", "procedure", "sprite", "if", "else", "while", "repeat", "forever"
+    "let", "procedure", "sprite", "if", "else", "while", "repeat", "forever", "import"
 ]
 
 
