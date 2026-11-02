@@ -10,7 +10,9 @@ from .scratch_ast import (
 
 
 class ParseException(Exception):
-    """Defines errors caused by unsupported parser features or invalid parser usage."""
+    """
+    Defines errors caused by unsupported parser features or invalid parser usage.
+    """
 
 
 class Parser:
@@ -83,10 +85,23 @@ class Parser:
             return self.tokens[self.current_token_index]
         return None
 
-    def next_token(self) -> Token | None:
-        """Advances the cursor by one token and returns the new current token."""
+    def move_next_token(self) -> Token | None:
+        """
+        Advances the cursor by one token and returns the new current token.
+        :return: new current token after moving forward
+        """
         self.current_token_index = min(self.current_token_index + 1, self.tokens_count)
         return self.current_token()
+
+    def get_following_token(self) -> Token | None:
+        """
+        Returns the token after current token index
+        :return: token that follows after the current token (if exists, else None)
+        """
+        following_token_index = self.current_token_index + 1
+        if following_token_index < self.tokens_count:
+            return self.tokens[following_token_index]
+        return None
 
     def expect_current_token(self, token_type: TokenType | None = None,
                              token_value: str | None = None) -> Token:
@@ -118,7 +133,11 @@ class Parser:
         self._syntax_error(f"Expected one of {expected}, got {token}", token)
 
     def _syntax_error(self, message: str, token: Token | None = None):
-        """Raises a syntax error including the available file, line and column."""
+        """
+        Raises a syntax error including the available file, line and column.
+        :param message: additional message to be displyaed inside the SyntaxError
+        :param token: token which led to the error (current parser's token by default)
+        """
         token = token or self.current_token()
         if token is None and self.tokens:
             token = self.tokens[-1]
@@ -148,7 +167,7 @@ class Parser:
         :return: Interior tokens, leaving the original token list unchanged
         """
         opening = self.expect_current_token(opening_token_type)
-        self.next_token()
+        self.move_next_token()
         start = self.current_token_index
         depth = 1
         while (token := self.current_token()) is not None:
@@ -160,33 +179,66 @@ class Parser:
                 depth -= 1
                 if depth == 0:
                     contents = self.tokens[start:self.current_token_index]
-                    self.next_token()
+                    self.move_next_token()
                     return contents
-            self.next_token()
+            self.move_next_token()
         self._syntax_error(f"Missing closing token {closing_token_type}", opening)
 
     def _consume_braces(self) -> list[Token]:
-        """Returns a brace block's contents and advances past its closing brace."""
+        """
+        Returns a brace block's contents and advances past its closing brace.
+        :return: List of tokens representing the block content
+        """
         return self._consume_content(TokenType.LBRACE, TokenType.RBRACE)
 
+    def _parse_import(self) -> list[ASTNode]:
+        """
+        Reads the first token after the import keyword and then attempts
+        to find the file using the token value as path relative to current work directory.
+        If file found, creates a subparser which parses the whole imported file and adds the AST
+        to the project AST pool
+        Important! Later we should look at whether file wasn't already imported so cyclic import won't happen.
+        Even later we should add caching the previous result based on file hashes so unmodified files won't be parsed over again.
+        :return: list of parsed AST nodes
+        """
+        self.expect_current_token(TokenType.KEYWORD, "import")
+        source = self.move_next_token()
+        self.expect_current_token(TokenType.LITERAL)
+        path = source.value
+        if not os.path.isfile(path):
+            raise ParseException(f"Provided path {path} does not point to a valid file!")
+        self.move_next_token()
+        parser = Parser()
+        parser.feed_file(path)
+        return parser.build_ast()
+
     def _parse_block(self, context: str) -> list[ASTNode]:
-        """Parses a brace body in a copied context without removing input tokens."""
+        """
+        Copies the braces body and moves past them then creates a subparser that builds the brace block content into AST
+        :param context: Block context like if, while, for
+        :return: Block's AST
+        """
         self._skip_newlines()
         parser = self._create_subparser(self._consume_braces())
         parser.scope.append(context)
         return parser.build_ast()
 
     def _parse_block_expression(self) -> Reporter:
-        """Parses a header expression and requires an opening brace after it."""
+        """
+        Parses a header expression and requires an opening brace after it.
+        """
         expression = self._parse_expression()
         self._skip_newlines()
         self.expect_current_token(TokenType.LBRACE)
         return expression
 
     def _parse_conditional(self) -> Conditional:
-        """Parses if, an optional else body, and recursive else if branches."""
+        """
+        Parses if, an optional else body, and recursive else if branches.
+        :return: AST node representing conditional
+        """
         token = self.expect_current_token(TokenType.KEYWORD, "if")
-        self.next_token()
+        self.move_next_token()
         condition = self._parse_block_expression()
         body = self._parse_block("If")
         else_body = None
@@ -194,7 +246,7 @@ class Parser:
         self._skip_newlines()
         following = self.current_token()
         if following and following.token_type == TokenType.KEYWORD and following.value == "else":
-            self.next_token()
+            self.move_next_token()
             self._skip_newlines()
             following = self.current_token()
             if following and following.token_type == TokenType.KEYWORD and following.value == "if":
@@ -206,10 +258,11 @@ class Parser:
         return Conditional(line=token.line, column=token.column, condition=condition,
                            body=body, else_body=else_body)
 
+
     def _parse_while(self) -> WhileLoop:
         """Parses a while condition followed by its brace body."""
         token = self.expect_current_token(TokenType.KEYWORD, "while")
-        self.next_token()
+        self.move_next_token()
         condition = self._parse_block_expression()
         return WhileLoop(line=token.line, column=token.column, condition=condition,
                          body=self._parse_block("While"))
@@ -217,7 +270,7 @@ class Parser:
     def _parse_repeat(self) -> RepeatLoop:
         """Parses a repeat count expression followed by its brace body."""
         token = self.expect_current_token(TokenType.KEYWORD, "repeat")
-        self.next_token()
+        self.move_next_token()
         count = self._parse_block_expression()
         return RepeatLoop(line=token.line, column=token.column, count=count,
                           body=self._parse_block("Repeat"))
@@ -225,7 +278,7 @@ class Parser:
     def _parse_forever(self) -> ForeverLoop:
         """Parses a forever body, rejecting expressions in its header."""
         token = self.expect_current_token(TokenType.KEYWORD, "forever")
-        self.next_token()
+        self.move_next_token()
         return ForeverLoop(line=token.line, column=token.column,
                            body=self._parse_block("Forever"))
 
@@ -234,9 +287,9 @@ class Parser:
         token = self.expect_current_token(TokenType.KEYWORD, "sprite")
         if self.scope:
             self._syntax_error("Sprite has to be declared in global scope", token)
-        self.next_token()
+        self.move_next_token()
         name = self.expect_current_token(TokenType.IDENTIFIER).value
-        self.next_token()
+        self.move_next_token()
         self._skip_newlines()
         parser = self._create_subparser(self._consume_braces())
         parser.scope.extend(["Sprite", name])
@@ -247,12 +300,15 @@ class Parser:
         )
 
     def _parse_decorator(self) -> EntryPoint:
-        """Parses an entry point with a brace body, preserving declarations and calls."""
+        """
+        Parses an entry point with a brace body, preserving declarations and calls.
+        :return: entry point and it's body AST
+        """
         token = self.expect_current_token(TokenType.DECORATOR)
         instruction_name = {"@start": "__whenflagclicked"}.get(token.value)
         if instruction_name is None:
             self._syntax_error(f"Invalid entry point definition {token.value}", token)
-        self.next_token()
+        self.move_next_token()
         self._skip_newlines()
         if self.current_token() and self.current_token().token_type == TokenType.LPAREN:
             raise ParseException("Decorator arguments are not yet implemented!")
@@ -261,7 +317,11 @@ class Parser:
                           body=self._parse_block("EntryPoint"))
 
     def _parse_keyword(self) -> list[ASTNode]:
-        """Dispatches supported keyword declarations and returns their AST nodes."""
+        """
+        Looks at the current token which is ensured to be a keyword,
+        then chooses the specific parse method for that specific keyword
+        :return: AST of the keyword
+        """
         token = self.expect_current_token(TokenType.KEYWORD)
         if token.value == "sprite":
             return [self._parse_sprite()]
@@ -275,23 +335,29 @@ class Parser:
             return [self._parse_repeat()]
         if token.value == "forever":
             return [self._parse_forever()]
+        if token.value == "import":
+            return self._parse_import()
         if token.value == "else":
             self._syntax_error("Else must follow an if body", token)
+
         raise ParseException(f"Keyword {token.value} is not implemented yet inside _parse_keyword()")
 
     def _parse_variable_declaration(self) -> list[ASTNode]:
-        """Parses a variable declaration and an optional initializer assignment."""
+        """
+        Parses a variable declaration and an optional initializer assignment.
+        :return: list of nodes representing creation and initialization of variables
+        """
         token = self.expect_current_token(TokenType.KEYWORD, "let")
-        self.next_token()
+        self.move_next_token()
         name = self.expect_current_token(TokenType.IDENTIFIER).value
-        self.next_token()
+        self.move_next_token()
         nodes: list[ASTNode] = [VariableDeclaration(
             line=token.line, column=token.column, variable_name=name,
             is_global=not self.scope,
         )]
         current = self.current_token()
         if current and current.token_type == TokenType.OPERATOR and current.value == "=":
-            self.next_token()
+            self.move_next_token()
             value = self._parse_expression()
             nodes.append(VariableSet(line=token.line, column=token.column,
                                      arguments=[], variable_name=name, new_value=value))
@@ -305,14 +371,14 @@ class Parser:
         :return: An assignment, reference, call or binary expression
         """
         token = self.expect_current_token(TokenType.IDENTIFIER)
-        following_index = self.current_token_index + 1
-        following = self.tokens[following_index] if following_index < self.tokens_count else None
+        following = self.get_following_token()
+
         if (not force_no_setters and following is not None
                 and following.token_type == TokenType.OPERATOR
                 and following.value in self._ASSIGNMENT_OPERATORS):
-            self.next_token()
+            self.move_next_token()
             operator = self.current_token()
-            self.next_token()
+            self.move_next_token()
             value = self._parse_expression()
             if operator.value != "=":
                 value = MathOperation(
@@ -331,14 +397,18 @@ class Parser:
         return node
 
     def _skip_newlines(self):
-        """Advances over line breaks without accepting semicolons or file boundaries."""
+        """
+        Advances over line breaks without accepting semicolons or file boundaries.
+        """
         while (token := self.current_token()) is not None:
             if token.token_type != TokenType.END or token.value != "\n":
                 return
-            self.next_token()
+            self.move_next_token()
 
     def _skip_expression_newlines(self):
-        """Allows multiline expressions only inside parentheses or argument lists."""
+        """
+        Allows multiline expressions only inside parentheses or argument lists by skipping newlines
+        """
         if self._parenthesis_depth:
             self._skip_newlines()
 
@@ -356,7 +426,7 @@ class Parser:
             if (token is None or token.token_type != TokenType.OPERATOR
                     or operator is None or operator[0] < minimum_precedence):
                 return left
-            self.next_token()
+            self.move_next_token()
             right = self._parse_expression(operator[0] + 1)
             left = MathOperation(line=token.line, column=token.column,
                                  operator=operator[1], left_value=left, right_value=right)
@@ -366,7 +436,7 @@ class Parser:
         self._skip_expression_newlines()
         token = self.current_token()
         if token and token.token_type == TokenType.OPERATOR and token.value in ("-", "+", "!", "not"):
-            self.next_token()
+            self.move_next_token()
             return UnaryOperation(line=token.line, column=token.column,
                                   operator=token.value, operand=self._parse_unary())
         return self._parse_operand()
@@ -376,20 +446,20 @@ class Parser:
         self._skip_expression_newlines()
         token = self.expect_current_token()
         if token.token_type == TokenType.LITERAL:
-            self.next_token()
+            self.move_next_token()
             return Value(line=token.line, column=token.column, value=token.value)
         if token.token_type == TokenType.IDENTIFIER:
-            self.next_token()
+            self.move_next_token()
             if self.current_token() and self.current_token().token_type == TokenType.LPAREN:
                 return self._parse_call(token)
             return VariableReference(line=token.line, column=token.column, variable_name=token.value)
         if token.token_type == TokenType.LPAREN:
-            self.next_token()
+            self.move_next_token()
             self._parenthesis_depth += 1
             try:
                 expression = self._parse_expression()
                 self.expect_current_token(TokenType.RPAREN)
-                self.next_token()
+                self.move_next_token()
                 return expression
             finally:
                 self._parenthesis_depth -= 1
@@ -402,7 +472,7 @@ class Parser:
         :return: A call expression with its argument trees
         """
         self.expect_current_token(TokenType.LPAREN)
-        self.next_token()
+        self.move_next_token()
         self._parenthesis_depth += 1
         arguments = []
         try:
@@ -412,30 +482,34 @@ class Parser:
                     arguments.append(self._parse_expression())
                     token = self.current_token()
                     if token and token.token_type == TokenType.SYMBOL and token.value == ",":
-                        self.next_token()
+                        self.move_next_token()
                     else:
                         break
             self.expect_current_token(TokenType.RPAREN)
-            self.next_token()
+            self.move_next_token()
         finally:
             self._parenthesis_depth -= 1
         return FunctionCall(line=name_token.line, column=name_token.column,
                             function_name=name_token.value, arguments=arguments)
 
     def _expect_statement_end(self):
-        """Rejects leftover expression tokens unless a statement or input boundary follows."""
+        """
+        Rejects leftover expression tokens unless a statement or input boundary follows.
+        """
         token = self.current_token()
         if token is not None and token.token_type not in (TokenType.END, TokenType.EOF, TokenType.NEWFILE):
             self._syntax_error(f"Expected end of statement, got {token}", token)
 
     def build_ast(self) -> list[ASTNode]:
-        """Parses all supplied tokens into a complete list of AST nodes."""
+        """
+        Parses all supplied tokens into a complete list of AST nodes.
+        """
         nodes = []
         while (token := self.current_token()) is not None:
             if token.token_type in (TokenType.END, TokenType.EOF, TokenType.NEWFILE):
                 if token.token_type == TokenType.NEWFILE:
                     self.current_file = token.value
-                self.next_token()
+                self.move_next_token()
             elif token.token_type == TokenType.KEYWORD:
                 nodes.extend(self._parse_keyword())
             elif token.token_type == TokenType.DECORATOR:
