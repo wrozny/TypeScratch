@@ -1,0 +1,7 @@
+import "LangDemos/mathlib.tsl"
+
+sprite Duck {
+    @start {
+        say(PI)
+    }
+}

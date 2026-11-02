@@ -1,0 +1,7 @@
+let PI = 3.141597
+
+sprite Mathy {
+    @start {
+        say(join("Hmmmm pi is... ", PI))
+    }
+}
