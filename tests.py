@@ -296,12 +296,11 @@ def _parse_file(file_path: str):
 
     from pprint import pprint
 
-    pprint(ast, width=100)
+    print(ast)
 
 
 def parser_expression_test1():
     _parse_file("LangDemos/expressions.tsl")
-
 
 
 def parser_test1():
@@ -311,5 +310,9 @@ def parser_test1():
     print(parser.tokens)
 
 
+def import_test1():
+    _parse_file("LangDemos/imports.tsl")
+
+
 if __name__ == "__main__":
-    parser_expression_test1()
+    import_test1()
