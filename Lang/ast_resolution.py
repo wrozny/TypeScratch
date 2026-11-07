@@ -91,6 +91,7 @@ class NameResolver:
                     parameter_name: self.get_unique_prefixed_name(parameter_name) for parameter_name in node.parameters
                 }
 
+            #!TODO: add else block handling for Conditional ASTNode
             if hasattr(node, "body"):
                 body = getattr(node, "body")
                 self._resolve_nodes(body, scope.copy())
