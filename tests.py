@@ -1,8 +1,8 @@
 import os
 
-from ScratchCompiler import target, sb3_project, blocks
-from Lang.parser import Parser
 from Lang.ast_resolution import NameResolver
+from Lang.parser import Parser
+from ScratchCompiler import target, sb3_project, blocks
 
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 BUILD_FOLDER = os.path.join(SCRIPT_PATH, "build")
@@ -295,8 +295,6 @@ def _parse_file(file_path: str):
     parser.feed_file(file_path)
     ast = parser.build_ast()
 
-    from pprint import pprint
-
     print(ast)
 
 
@@ -322,6 +320,7 @@ def ast_resolution_test():
     name_resolver = NameResolver(ast)
     name_resolver.resolve()
     print(ast)
+    print(name_resolver.local_variables, name_resolver.global_variables)
 
 
 if __name__ == "__main__":
