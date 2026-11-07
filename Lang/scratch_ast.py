@@ -65,9 +65,11 @@ class VariableDeclaration(ASTNode):
 class VariableSet(Instruction):
     """
     Defines the "Set Variable" block in scratch or in parse terms the operation of setting a variable
+    variable_identifier refers to the inside project.json real variable identifier which is set by NameResolver inside ast_resolution.py
     """
     variable_name: str
     new_value: Reporter
+    variable_identifier: str | None = None
     instruction_name: str = field(default="__setvariableto", init=False)
 
 
