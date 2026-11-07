@@ -49,6 +49,12 @@ class NameResolver:
         return f"{prefix}-{name}"
 
     def _resolve_nodes(self, nodes: list[ASTNode], scope: dict[str, str]):
+        """
+        Recursively resolves VariableReference variable identifier property based on the scope.
+        Resolves converting VariableReference into ParameterReference if name matches parameter
+        :param nodes: list of nodes (ast)
+        :param scope: map of existing variables
+        """
         for node_controller, node in SmartIterator(nodes):
             if isinstance(node, VariableDeclaration):
                 scope[node.variable_name] = self.get_unique_prefixed_name(node.variable_name)
