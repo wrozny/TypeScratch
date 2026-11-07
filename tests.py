@@ -2,6 +2,7 @@ import os
 
 from ScratchCompiler import target, sb3_project, blocks
 from Lang.parser import Parser
+from Lang.ast_resolution import NameResolver
 
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 BUILD_FOLDER = os.path.join(SCRIPT_PATH, "build")
@@ -314,5 +315,14 @@ def import_test1():
     _parse_file("LangDemos/imports.tsl")
 
 
+def ast_resolution_test():
+    parser = Parser()
+    parser.feed_file("LangDemos/name_resolution.tsl")
+    ast = parser.build_ast()
+    name_resolver = NameResolver(ast)
+    name_resolver.resolve()
+    print(ast)
+
+
 if __name__ == "__main__":
-    import_test1()
+    ast_resolution_test()
