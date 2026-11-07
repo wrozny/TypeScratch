@@ -100,9 +100,12 @@ class ProcedureDefinition(EntryPoint):
 @dataclass
 class ParameterReference(Reporter):
     """
-    Defines a reference to a procedure parameter
+    Defines a parameter reference to a parameter defined in function/procedure body
+    parameter_identifier is used to differentiate same parameter names in different scopes,
+    it's later set by the NameResolver from ast_resolution.py
     """
     parameter_name: str
+    parameter_identifier: str | None = None
 
 
 class ScratchOperator(StrEnum):
