@@ -48,7 +48,6 @@ class NameResolver:
         prefix = self._get_unique_prefix()
         return f"{prefix}-{name}"
 
-
     def _resolve_nodes(self, nodes: list[ASTNode], scope: dict[str, str]):
         for node_controller, node in SmartIterator(nodes):
             if isinstance(node, VariableDeclaration):
@@ -72,6 +71,13 @@ class NameResolver:
                 if resolved_variable_identifier is None:
                     raise_ast_resolution_exception(node, f"Failed to find a variable with name '{node.variable_name}'")
                 node.variable_identifier = resolved_variable_identifier
+                continue
+
+            if isinstance(node, VariableSet):
+                variable_identifier = scope.get(node.variable_name, None)
+                if variable_identifier is None:
+                    raise_ast_resolution_exception(node, f"Failed to find a variable with name '{node.variable_name}'")
+                node.variable_identifier = variable_identifier
                 continue
 
             if isinstance(node, ProcedureDefinition):
