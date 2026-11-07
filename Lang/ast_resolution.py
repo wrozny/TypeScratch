@@ -1,3 +1,4 @@
+from ScratchCompiler.blocks import Procedure
 from .scratch_ast import *
 from .smart_iterator import SmartIterator
 from dataclasses import fields
@@ -28,8 +29,9 @@ class NameResolver:
         self._current_parameters = {}
         self._unique_prefix_counter = 0
 
-        self.global_variables: dict[str, str] = {}
-        self.local_variables: dict[str, dict[str, str]] = {}
+        self._current_sprite: str | None = None
+        self.global_variables: set[str] = set()
+        self.local_variables: dict[str, set[str]] = {}
 
     def _get_unique_prefix(self) -> int:
         """
@@ -48,6 +50,23 @@ class NameResolver:
         prefix = self._get_unique_prefix()
         return f"{prefix}-{name}"
 
+    def create_global_variable(self, variable_identifier):
+        """
+        Adds a variable identifier to global variables list
+        :param variable_identifier: the variable identifier
+        """
+        self.global_variables.add(variable_identifier)
+
+    def create_local_variable(self, sprite_name: str, variable_identifier: str):
+        """
+        Adds a variable identifier to the local variables
+        :param sprite_name: sprite to add the variable to
+        :param variable_identifier: the variable identifier
+        """
+        if sprite_name not in self.local_variables:
+            self.local_variables[sprite_name] = set()
+        self.local_variables[sprite_name].add(variable_identifier)
+
     def _resolve_nodes(self, nodes: list[ASTNode], scope: dict[str, str]):
         """
         Recursively resolves VariableReference variable identifier property based on the scope.
@@ -58,6 +77,10 @@ class NameResolver:
         for node_controller, node in SmartIterator(nodes):
             if isinstance(node, VariableDeclaration):
                 scope[node.variable_name] = self.get_unique_prefixed_name(node.variable_name)
+                if self._current_sprite is None:
+                    self.create_global_variable(scope[node.variable_name])
+                else:
+                    self.create_local_variable(self._current_sprite, scope[node.variable_name])
                 node_controller.dispose()
                 continue
 
@@ -91,7 +114,10 @@ class NameResolver:
                     parameter_name: self.get_unique_prefixed_name(parameter_name) for parameter_name in node.parameters
                 }
 
-            #!TODO: add else block handling for Conditional ASTNode
+            if isinstance(node, SpriteDefinition):
+                self._current_sprite = node.name
+
+            # !TODO: add else block handling for Conditional ASTNode
             if hasattr(node, "body"):
                 body = getattr(node, "body")
                 self._resolve_nodes(body, scope.copy())
@@ -103,6 +129,9 @@ class NameResolver:
 
             if isinstance(node, ProcedureDefinition):
                 self._current_parameters.clear()
+
+            if isinstance(node, SpriteDefinition):
+                self._current_sprite = None
 
     def resolve(self):
         """
