@@ -300,5 +300,6 @@ class ParserTestCases(unittest.TestCase):
             self._parse("sprite Duck { sprite Cat {} }")
 
 
+
 if __name__ == '__main__':
     unittest.main()
