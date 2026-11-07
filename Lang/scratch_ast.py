@@ -75,8 +75,11 @@ class VariableSet(Instruction):
 class VariableReference(Reporter):
     """
     Defines a variable reference to variable with specific variable name
+    variable_identifier is used to differentiate same variable names in different scopes,
+    it's later set by the NameResolver from ast_resolution.py
     """
     variable_name: str
+    variable_identifier: str | None = None
 
 
 @dataclass
